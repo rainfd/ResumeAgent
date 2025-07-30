@@ -65,6 +65,11 @@ class ResumeAssistantApp:
         # 面板数据缓存（用于滚动）
         self.panel_data = {}
         
+        # 选中状态管理
+        self.selected_resume_index = 0  # 当前选中的简历索引
+        self.selected_job_index = 0     # 当前选中的职位索引 
+        self.selected_analysis_index = 0 # 当前选中的分析索引
+        
         # 初始化组件
         self.main_menu = ComponentFactory.create_main_menu()
         self.status_bar = StatusBar()
@@ -154,7 +159,7 @@ class ResumeAssistantApp:
         welcome_text.append("1. 直接按数字键 1-6 切换不同功能面板（无需回车）\n", style="yellow")
         welcome_text.append("2. 使用 j/k 或 ↑/↓ 键滚动内容（vim风格）\n", style="yellow")
         welcome_text.append("3. 按 : 进入命令模式（需要回车确认命令）\n", style="yellow")
-        welcome_text.append("4. 在简历管理面板中：按u上传、v查看、d删除\n", style="yellow")
+        welcome_text.append("4. 在管理面板中：↑/↓/j/k选择项目，u上传，v查看，d删除\n", style="yellow")
         welcome_text.append("5. 在职位管理中添加目标职位\n", style="yellow")
         welcome_text.append("6. 使用AI分析获得优化建议\n", style="yellow")
         welcome_text.append("7. 生成个性化的打招呼语\n", style="yellow")
@@ -215,7 +220,7 @@ class ResumeAssistantApp:
     def _create_resumes_panel(self) -> Panel:
         """创建简历管理面板"""
         # 创建简历表格
-        resume_table = ComponentFactory.create_resume_table()
+        resume_table = ComponentFactory.create_resume_table(self.selected_resume_index)
         
         # 获取真实的简历数据
         try:
@@ -246,9 +251,11 @@ class ResumeAssistantApp:
                      .add_line("• 文件信息统计", "green")
                      .add_separator()
                      .add_header("操作说明")
+                     .add_line("↑/k - 选择上一个", "cyan")
+                     .add_line("↓/j - 选择下一个", "cyan")
                      .add_line("u - 上传新简历", "yellow")
+                     .add_line("v - 查看选中简历详情", "yellow")
                      .add_line("d - 删除选中简历", "yellow")
-                     .add_line("v - 查看简历详情", "yellow")
                      .add_separator()
                      .add_header("支持格式")
                      .add_line("• PDF文件 (.pdf)", "cyan")
@@ -462,17 +469,31 @@ class ResumeAssistantApp:
                 self.scroll_offset = 0  # 重置滚动偏移
                 self.logger.info(f"切换面板: {old_panel} -> {self.current_panel}")
         elif key in ('up', 'k'):
-            # 向上滚动，只有成功滚动时才刷新界面
-            if self._scroll_up():
-                return True
+            # 在管理面板中用于选择，其他面板用于滚动
+            if self.current_panel in ["简历管理", "职位管理", "AI分析"]:
+                if self._select_previous_item():
+                    return True
+                else:
+                    return None
             else:
-                return None  # 滚动失败，不刷新界面
+                # 向上滚动，只有成功滚动时才刷新界面
+                if self._scroll_up():
+                    return True
+                else:
+                    return None  # 滚动失败，不刷新界面
         elif key in ('down', 'j'):
-            # 向下滚动，只有成功滚动时才刷新界面
-            if self._scroll_down():
-                return True
+            # 在管理面板中用于选择，其他面板用于滚动
+            if self.current_panel in ["简历管理", "职位管理", "AI分析"]:
+                if self._select_next_item():
+                    return True
+                else:
+                    return None
             else:
-                return None  # 滚动失败，不刷新界面
+                # 向下滚动，只有成功滚动时才刷新界面
+                if self._scroll_down():
+                    return True
+                else:
+                    return None  # 滚动失败，不刷新界面
         elif key == 'h':
             # 显示帮助
             return True
@@ -587,6 +608,50 @@ class ResumeAssistantApp:
         old_panel = self.current_panel
         self.current_panel = panel_names[prev_index]
         self.logger.info(f"切换到上一个面板: {old_panel} -> {self.current_panel}")
+    
+    def _select_previous_item(self) -> bool:
+        """选择上一个项目（在当前面板中）"""
+        if self.current_panel == "简历管理":
+            resumes = self.resume_processor.list_resumes()
+            if resumes and self.selected_resume_index > 0:
+                self.selected_resume_index -= 1
+                self.logger.info(f"选择上一个简历，索引: {self.selected_resume_index}")
+                return True
+        elif self.current_panel == "职位管理":
+            jobs = self.job_manager.list_jobs()
+            if jobs and self.selected_job_index > 0:
+                self.selected_job_index -= 1
+                self.logger.info(f"选择上一个职位，索引: {self.selected_job_index}")
+                return True
+        elif self.current_panel == "AI分析":
+            analyses = self.ai_analyzer.list_analysis()
+            if analyses and self.selected_analysis_index > 0:
+                self.selected_analysis_index -= 1
+                self.logger.info(f"选择上一个分析，索引: {self.selected_analysis_index}")
+                return True
+        return False
+    
+    def _select_next_item(self) -> bool:
+        """选择下一个项目（在当前面板中）"""
+        if self.current_panel == "简历管理":
+            resumes = self.resume_processor.list_resumes()
+            if resumes and self.selected_resume_index < len(resumes) - 1:
+                self.selected_resume_index += 1
+                self.logger.info(f"选择下一个简历，索引: {self.selected_resume_index}")
+                return True
+        elif self.current_panel == "职位管理":
+            jobs = self.job_manager.list_jobs()
+            if jobs and self.selected_job_index < len(jobs) - 1:
+                self.selected_job_index += 1
+                self.logger.info(f"选择下一个职位，索引: {self.selected_job_index}")
+                return True
+        elif self.current_panel == "AI分析":
+            analyses = self.ai_analyzer.list_analysis()
+            if analyses and self.selected_analysis_index < len(analyses) - 1:
+                self.selected_analysis_index += 1
+                self.logger.info(f"选择下一个分析，索引: {self.selected_analysis_index}")
+                return True
+        return False
     
     def run(self):
         """运行应用程序"""
@@ -770,32 +835,25 @@ class ResumeAssistantApp:
                 self.console.print("[yellow]没有可删除的简历[/yellow]")
                 return
             
-            # 显示简历列表供选择
-            self.console.print("\n[bold]选择要删除的简历:[/bold]")
-            for i, resume in enumerate(resumes, 1):
-                self.console.print(f"{i}. {resume.filename} ({resume.file_type})")
+            # 检查选中索引是否有效
+            if self.selected_resume_index >= len(resumes):
+                self.selected_resume_index = len(resumes) - 1
             
-            # 获取用户选择
-            from rich.prompt import IntPrompt
-            try:
-                choice = IntPrompt.ask(
-                    "输入简历序号",
-                    default=1,
-                    choices=[str(i) for i in range(1, len(resumes) + 1)]
-                )
-                
-                selected_resume = resumes[choice - 1]
-                
-                # 确认删除
-                from rich.prompt import Confirm
-                if Confirm.ask(f"确定要删除 '{selected_resume.filename}' 吗？"):
-                    if self.resume_processor.delete_resume(selected_resume.id):
-                        self.console.print(f"[green]✅ 已删除: {selected_resume.filename}[/green]")
-                        self.logger.info(f"简历删除成功: {selected_resume.filename}")
-                    else:
-                        self.console.print("[red]❌ 删除失败[/red]")
-                        
-            except (KeyboardInterrupt, EOFError):
+            selected_resume = resumes[self.selected_resume_index]
+            
+            # 确认删除
+            from rich.prompt import Confirm
+            if Confirm.ask(f"确定要删除 '{selected_resume.filename}' 吗？", default=False):
+                if self.resume_processor.delete_resume(selected_resume.id):
+                    self.console.print(f"[green]✅ 已删除: {selected_resume.filename}[/green]")
+                    self.logger.info(f"简历删除成功: {selected_resume.filename}")
+                    
+                    # 调整选中索引
+                    if self.selected_resume_index >= len(resumes) - 1 and self.selected_resume_index > 0:
+                        self.selected_resume_index -= 1
+                else:
+                    self.console.print("[red]❌ 删除失败[/red]")
+            else:
                 self.console.print("[yellow]取消删除操作[/yellow]")
                 
         except Exception as e:
@@ -810,57 +868,268 @@ class ResumeAssistantApp:
                 self.console.print("[yellow]没有可查看的简历[/yellow]")
                 return
             
-            # 显示简历列表供选择
-            self.console.print("\n[bold]选择要查看的简历:[/bold]")
-            for i, resume in enumerate(resumes, 1):
-                self.console.print(f"{i}. {resume.filename} ({resume.file_type})")
+            # 检查选中索引是否有效
+            if self.selected_resume_index >= len(resumes):
+                self.selected_resume_index = len(resumes) - 1
             
-            # 获取用户选择
-            from rich.prompt import IntPrompt
-            try:
-                choice = IntPrompt.ask(
-                    "输入简历序号",
-                    default=1,
-                    choices=[str(i) for i in range(1, len(resumes) + 1)]
-                )
-                
-                selected_resume = resumes[choice - 1]
-                
-                # 创建详情面板
-                detail_panel = ComponentFactory.create_resume_detail_panel()
-                resume_data = {
-                    'id': selected_resume.id,
-                    'filename': selected_resume.filename,
-                    'file_type': selected_resume.file_type,
-                    'file_size': selected_resume.file_size,
-                    'created_at': selected_resume.created_at,
-                    'updated_at': selected_resume.updated_at,
-                    'metadata': selected_resume.metadata
-                }
-                detail_panel.set_resume_data(resume_data)
-                
-                # 显示详情
-                self.console.print(detail_panel.render())
-                
-                # 显示内容预览（前500字符）
-                if selected_resume.content:
-                    preview = selected_resume.content[:500]
-                    if len(selected_resume.content) > 500:
-                        preview += "..."
-                    
-                    content_panel = InfoPanel("内容预览", "blue")
-                    content_panel.add_line(preview, "white")
-                    self.console.print(content_panel.render())
-                
-                # 等待用户按键继续
-                input("\n按回车键继续...")
-                
-            except (KeyboardInterrupt, EOFError):
-                self.console.print("[yellow]取消查看操作[/yellow]")
+            selected_resume = resumes[self.selected_resume_index]
+            
+            # 启动可滚动的简历预览模式
+            self._show_scrollable_resume_preview(selected_resume)
                 
         except Exception as e:
             self.console.print(f"[red]查看操作失败: {e}[/red]")
             self.logger.error(f"简历查看失败: {e}")
+    
+    def _show_scrollable_resume_preview(self, resume):
+        """显示可滚动的简历预览"""
+        # 准备所有要显示的内容
+        content_lines = []
+        
+        # 添加标题
+        content_lines.extend([
+            f"📄 简历详情 - {resume.filename}",
+            "=" * 60,
+            ""
+        ])
+        
+        # 添加基本信息
+        content_lines.extend([
+            "📋 基本信息:",
+            f"  文件名: {resume.filename}",
+            f"  格式: {resume.file_type.upper()}",
+            f"  大小: {self._format_file_size(resume.file_size)}",
+            f"  创建时间: {resume.created_at.strftime('%Y-%m-%d %H:%M:%S') if resume.created_at else 'N/A'}",
+            f"  更新时间: {resume.updated_at.strftime('%Y-%m-%d %H:%M:%S') if resume.updated_at else 'N/A'}",
+            ""
+        ])
+        
+        # 添加结构化信息
+        if hasattr(resume, 'personal_info') and resume.personal_info:
+            content_lines.append("👤 个人信息:")
+            for key, value in resume.personal_info.items():
+                content_lines.append(f"  {key}: {value}")
+            content_lines.append("")
+        
+        if hasattr(resume, 'skills') and resume.skills:
+            content_lines.append("🛠 技能清单:")
+            for skill in resume.skills:
+                content_lines.append(f"  • {skill}")
+            content_lines.append("")
+        
+        if hasattr(resume, 'work_experience') and resume.work_experience:
+            content_lines.append("💼 工作经历:")
+            for i, exp in enumerate(resume.work_experience, 1):
+                content_lines.append(f"  {i}. {exp.get('company', 'N/A')} - {exp.get('position', 'N/A')}")
+                if exp.get('duration'):
+                    content_lines.append(f"     时间: {exp['duration']}")
+                if i < len(resume.work_experience):
+                    content_lines.append("")
+            content_lines.append("")
+        
+        if hasattr(resume, 'education') and resume.education:
+            content_lines.append("🎓 教育经历:")
+            for i, edu in enumerate(resume.education, 1):
+                content_lines.append(f"  {i}. {edu.get('school', 'N/A')} - {edu.get('major', 'N/A')}")
+                if edu.get('degree'):
+                    content_lines.append(f"     学历: {edu['degree']}")
+                if edu.get('duration'):
+                    content_lines.append(f"     时间: {edu['duration']}")
+                if i < len(resume.education):
+                    content_lines.append("")
+            content_lines.append("")
+        
+        if hasattr(resume, 'projects') and resume.projects:
+            content_lines.append("📂 项目经历:")
+            for i, proj in enumerate(resume.projects, 1):
+                content_lines.append(f"  {i}. {proj.get('name', 'N/A')}")
+                if proj.get('description'):
+                    content_lines.append(f"     描述: {proj['description']}")
+                if i < len(resume.projects):
+                    content_lines.append("")
+            content_lines.append("")
+        
+        # 添加原始内容
+        if resume.content:
+            content_lines.extend([
+                "📝 完整内容:",
+                "-" * 40,
+                ""
+            ])
+            # 分割内容为行
+            content_lines.extend(resume.content.split('\n'))
+        
+        # 启动滚动查看器
+        self._run_content_viewer(content_lines, f"简历预览 - {resume.filename}")
+    
+    def _format_file_size(self, size_bytes):
+        """格式化文件大小"""
+        if not size_bytes:
+            return "N/A"
+        if size_bytes >= 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        elif size_bytes >= 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        else:
+            return f"{size_bytes} B"
+    
+    def _run_content_viewer(self, content_lines, title):
+        """运行内容查看器（支持滚动）"""
+        scroll_offset = 0
+        max_lines = 20  # 每屏显示的行数
+        
+        try:
+            import termios
+            import sys
+            import tty
+            
+            # 保存终端设置
+            old_settings = termios.tcgetattr(sys.stdin)
+            tty.cbreak(sys.stdin.fileno())
+            
+            while True:
+                # 清屏
+                self.console.clear()
+                
+                # 显示标题和控制说明
+                self.console.print(f"[bold cyan]{title}[/bold cyan]")
+                self.console.print("[dim]使用 ↑/↓ 或 j/k 滚动，q 退出，h 显示帮助[/dim]")
+                self.console.print("─" * 60)
+                
+                # 显示当前内容
+                start_line = scroll_offset
+                end_line = min(start_line + max_lines, len(content_lines))
+                
+                for i in range(start_line, end_line):
+                    line = content_lines[i]
+                    self._print_formatted_line(line)
+                
+                # 显示滚动状态
+                if len(content_lines) > max_lines:
+                    total_pages = (len(content_lines) - 1) // max_lines + 1
+                    current_page = scroll_offset // max_lines + 1
+                    self.console.print("─" * 60)
+                    self.console.print(f"[dim]第 {current_page}/{total_pages} 页 | 显示 {start_line + 1}-{end_line}/{len(content_lines)} 行[/dim]")
+                
+                # 获取用户输入
+                char = sys.stdin.read(1)
+                
+                # 处理特殊键（方向键等）
+                if char == '\x1b':  # ESC sequence
+                    try:
+                        next_chars = sys.stdin.read(2)
+                        if next_chars == '[A':  # Up arrow
+                            char = 'k'
+                        elif next_chars == '[B':  # Down arrow  
+                            char = 'j'
+                        elif next_chars == '[5~':  # Page Up
+                            char = 'u'
+                        elif next_chars == '[6~':  # Page Down
+                            char = 'd'
+                    except:
+                        pass
+                
+                if char == 'q':
+                    break
+                elif char == 'k':  # up arrow or k
+                    if scroll_offset > 0:
+                        scroll_offset -= 1
+                elif char == 'j':  # down arrow or j
+                    if scroll_offset + max_lines < len(content_lines):
+                        scroll_offset += 1
+                elif char == 'h':
+                    # 显示帮助
+                    self._show_viewer_help()
+                elif char in ('d', ' '):  # Page Down or Space
+                    new_offset = scroll_offset + max_lines
+                    if new_offset < len(content_lines):
+                        scroll_offset = new_offset
+                elif char == 'u':  # Page Up
+                    new_offset = scroll_offset - max_lines
+                    if new_offset >= 0:
+                        scroll_offset = new_offset
+            
+            # 恢复终端设置
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            
+        except Exception as e:
+            # 如果终端控制失败，回退到简单模式
+            self.logger.warning(f"终端控制失败，使用简化预览: {e}")
+            self._show_simple_resume_preview(content_lines, title)
+    
+    def _show_viewer_help(self):
+        """显示查看器帮助"""
+        self.console.clear()
+        self.console.print("[bold cyan]简历预览器 - 帮助[/bold cyan]")
+        self.console.print("─" * 40)
+        self.console.print("[white]导航快捷键:[/white]")
+        self.console.print("  ↑ / k     - 向上滚动一行")
+        self.console.print("  ↓ / j     - 向下滚动一行") 
+        self.console.print("  u         - 向上翻页")
+        self.console.print("  d / Space - 向下翻页")
+        self.console.print("  h         - 显示此帮助")
+        self.console.print("  q         - 退出预览并返回简历管理")
+        self.console.print("─" * 40)
+        self.console.print("[dim]按任意键继续...[/dim]")
+        
+        import sys
+        sys.stdin.read(1)
+    
+    def _show_simple_resume_preview(self, content_lines, title):
+        """简单的简历预览（不支持滚动）"""
+        self.console.print(f"[bold cyan]{title}[/bold cyan]")
+        self.console.print("─" * 60)
+        
+        for line in content_lines:
+            if line.startswith("📄") or line.startswith("="):
+                self.console.print(f"[bold]{line}[/bold]")
+            elif line.startswith("📋") or line.startswith("👤") or line.startswith("🛠") or line.startswith("💼") or line.startswith("🎓") or line.startswith("📂") or line.startswith("📝"):
+                self.console.print(f"[bold cyan]{line}[/bold cyan]")
+            elif line.startswith("  •") or line.startswith("  "):
+                self.console.print(f"[white]{line}[/white]")
+            else:
+                self.console.print(line)
+        
+        input("\n按回车键继续...")
+    
+    def _print_formatted_line(self, line):
+        """格式化打印行内容"""
+        if not line.strip():
+            self.console.print("")
+        elif line.startswith("📄"):
+            self.console.print(f"[bold blue]{line}[/bold blue]")
+        elif line.startswith("="):
+            self.console.print(f"[blue]{line}[/blue]")
+        elif line.startswith("📋"):
+            self.console.print(f"[bold green]{line}[/bold green]")
+        elif line.startswith("👤"):
+            self.console.print(f"[bold cyan]{line}[/bold cyan]")
+        elif line.startswith("🛠"):
+            self.console.print(f"[bold yellow]{line}[/bold yellow]")
+        elif line.startswith("💼"):
+            self.console.print(f"[bold magenta]{line}[/bold magenta]")
+        elif line.startswith("🎓"):
+            self.console.print(f"[bold red]{line}[/bold red]")
+        elif line.startswith("📂"):
+            self.console.print(f"[bold bright_blue]{line}[/bold bright_blue]")
+        elif line.startswith("📝"):
+            self.console.print(f"[bold white]{line}[/bold white]")
+        elif line.startswith("-"):
+            self.console.print(f"[dim]{line}[/dim]")
+        elif line.startswith("  •"):
+            self.console.print(f"[bright_white]{line}[/bright_white]")
+        elif line.startswith("  "):
+            # 缩进内容，使用不同颜色
+            if ":" in line:
+                key, value = line.split(":", 1)
+                self.console.print(f"[cyan]{key}:[/cyan][white]{value}[/white]")
+            else:
+                self.console.print(f"[white]{line}[/white]")
+        elif line.startswith("#"):
+            # Markdown标题
+            self.console.print(f"[bold bright_cyan]{line}[/bold bright_cyan]")
+        else:
+            self.console.print(f"[default]{line}[/default]")
     
     def _handle_ai_analysis_start(self):
         """处理开始AI分析"""

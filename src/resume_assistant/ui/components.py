@@ -309,9 +309,9 @@ class ComponentFactory:
     """组件工厂类"""
     
     @staticmethod
-    def create_resume_table() -> 'ResumeTable':
+    def create_resume_table(selected_index: int = 0) -> 'ResumeTable':
         """创建简历表格"""
-        return ResumeTable()
+        return ResumeTable(selected_index)
     
     @staticmethod
     def create_file_upload_dialog(supported_formats: List[str] = None) -> 'FileUploadDialog':
@@ -456,15 +456,18 @@ class FileUploadDialog:
 class ResumeTable(DataTable):
     """简历表格组件（增强版）"""
     
-    def __init__(self):
+    def __init__(self, selected_index: int = 0):
         super().__init__("简历列表", "cyan")
         # 设置列
+        self.add_column("选择", "bold")
         self.add_column("ID", "dim")
         self.add_column("文件名", "white")
         self.add_column("格式", "yellow")
         self.add_column("大小", "cyan")
         self.add_column("创建时间", "green")
         self.add_column("状态", "bold")
+        self.selected_index = selected_index
+        self.resume_count = 0
     
     def add_resume_row(self, resume_data: Dict[str, Any]) -> 'ResumeTable':
         """添加简历行数据
@@ -488,8 +491,13 @@ class ResumeTable(DataTable):
         else:
             time_str = str(created_at)[:16] if created_at else 'N/A'
         
+        # 确定选中状态
+        is_selected = self.resume_count == self.selected_index
+        select_indicator = "▶ " if is_selected else "  "
+        
         # 添加行
         self.add_row(
+            select_indicator,
             resume_data.get('id', '')[:8] + '...',  # 短ID
             resume_data.get('filename', 'N/A'),
             resume_data.get('file_type', 'N/A').upper(),
@@ -497,6 +505,7 @@ class ResumeTable(DataTable):
             time_str,
             "✅ 已解析"
         )
+        self.resume_count += 1
         return self
 
 

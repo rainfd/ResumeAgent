@@ -31,6 +31,7 @@ except ImportError:
 
 from ..utils import get_logger
 from ..utils.errors import ResumeProcessingError, UnsupportedFormatError
+from .parser import create_parser, ParsedResume
 
 logger = get_logger(__name__)
 
@@ -47,6 +48,14 @@ class Resume:
     updated_at: datetime
     file_path: Optional[str] = None
     file_size: Optional[int] = None
+    
+    # 结构化数据字段（来自解析器）
+    personal_info: Optional[Dict[str, str]] = None
+    skills: Optional[List[str]] = None
+    work_experience: Optional[List[Dict[str, str]]] = None
+    education: Optional[List[Dict[str, str]]] = None
+    projects: Optional[List[Dict[str, str]]] = None
+    sections: Optional[List] = None
 
 
 class PDFParser:
@@ -203,7 +212,14 @@ class ResumeStorage:
                 'updated_at': resume.updated_at.isoformat(),
                 'file_path': resume.file_path,
                 'file_size': resume.file_size,
-                'content_file': str(content_file)
+                'content_file': str(content_file),
+                # 结构化数据
+                'personal_info': resume.personal_info,
+                'skills': resume.skills,
+                'work_experience': resume.work_experience,
+                'education': resume.education,
+                'projects': resume.projects,
+                'sections': resume.sections
             }
             
             self._save_metadata()
@@ -247,7 +263,14 @@ class ResumeStorage:
                 created_at=datetime.fromisoformat(meta['created_at']),
                 updated_at=datetime.fromisoformat(meta['updated_at']),
                 file_path=meta.get('file_path'),
-                file_size=meta.get('file_size')
+                file_size=meta.get('file_size'),
+                # 结构化数据（可能为None如果是老数据）
+                personal_info=meta.get('personal_info'),
+                skills=meta.get('skills'),
+                work_experience=meta.get('work_experience'),
+                education=meta.get('education'),
+                projects=meta.get('projects'),
+                sections=meta.get('sections')
             )
             
         except Exception as e:
@@ -312,11 +335,7 @@ class ResumeProcessor:
             storage_dir: 存储目录路径
         """
         self.storage = ResumeStorage(storage_dir)
-        self.parsers = {
-            'pdf': PDFParser(),
-            'markdown': MarkdownParser(),
-            'md': MarkdownParser()  # .md文件也使用Markdown解析器
-        }
+        self.parser = create_parser()  # 使用新的统一解析器
     
     def upload_resume(self, file_path: str, custom_filename: Optional[str] = None) -> Resume:
         """上传并处理简历文件
@@ -335,14 +354,9 @@ class ResumeProcessor:
         if not os.path.exists(file_path):
             raise ResumeProcessingError(f"文件不存在: {file_path}")
         
-        # 确定文件类型
-        file_ext = Path(file_path).suffix.lower().lstrip('.')
-        if file_ext not in self.parsers:
-            raise UnsupportedFormatError(f"不支持的文件格式: {file_ext}")
-        
-        # 解析文件内容
+        # 使用新的解析器解析文件
         try:
-            content = self.parsers[file_ext].parse(file_path)
+            parsed_resume = self.parser.parse_file(file_path)
         except Exception as e:
             raise ResumeProcessingError(f"文件解析失败: {e}")
         
@@ -354,25 +368,40 @@ class ResumeProcessor:
         resume = Resume(
             id=resume_id,
             filename=filename,
-            file_type=file_ext,
-            content=content,
+            file_type=parsed_resume.file_type,
+            content=parsed_resume.raw_text,
             metadata={
                 'original_path': file_path,
-                'file_extension': file_ext,
-                'word_count': len(content.split()) if content else 0,
-                'char_count': len(content) if content else 0
+                'file_extension': parsed_resume.file_type,
+                'word_count': len(parsed_resume.raw_text.split()) if parsed_resume.raw_text else 0,
+                'char_count': len(parsed_resume.raw_text) if parsed_resume.raw_text else 0,
+                'sections_count': len(parsed_resume.sections),
+                'parsed_at': parsed_resume.parsed_at.isoformat(),
+                'parser_metadata': parsed_resume.metadata
             },
             created_at=datetime.now(),
             updated_at=datetime.now(),
             file_path=file_path,
-            file_size=file_stats.st_size
+            file_size=file_stats.st_size,
+            # 结构化数据
+            personal_info=parsed_resume.personal_info,
+            skills=parsed_resume.skills,
+            work_experience=parsed_resume.work_experience,
+            education=parsed_resume.education,
+            projects=parsed_resume.projects,
+            sections=[{
+                'title': s.title,
+                'content': s.content,
+                'start_pos': s.start_pos,
+                'end_pos': s.end_pos
+            } for s in parsed_resume.sections]
         )
         
         # 保存到存储
         if not self.storage.save_resume(resume):
             raise ResumeProcessingError("简历保存失败")
         
-        logger.info(f"简历上传成功: {filename} ({file_ext})")
+        logger.info(f"简历上传成功: {filename} ({parsed_resume.file_type})")
         return resume
     
     def get_resume(self, resume_id: str) -> Optional[Resume]:
@@ -434,12 +463,7 @@ class ResumeProcessor:
         Returns:
             List[str]: 支持的格式列表
         """
-        formats = []
-        if HAS_PDF_SUPPORT:
-            formats.append('pdf')
-        if HAS_MARKDOWN_SUPPORT or True:  # Markdown不需要额外库
-            formats.extend(['markdown', 'md'])
-        return formats
+        return ['pdf', 'md', 'markdown', 'txt']
     
     def get_format_info(self) -> Dict[str, bool]:
         """获取格式支持信息
@@ -448,7 +472,8 @@ class ResumeProcessor:
             Dict[str, bool]: 格式支持状态
         """
         return {
-            'pdf': HAS_PDF_SUPPORT,
-            'markdown': True,  # 总是支持
-            'md': True
+            'pdf': True,  # 现在使用PyMuPDF
+            'markdown': True,
+            'md': True,
+            'txt': True
         }

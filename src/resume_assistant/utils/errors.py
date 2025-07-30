@@ -164,6 +164,24 @@ class UnsupportedFormatError(ResumeAssistantError):
         super().__init__(message, "UNSUPPORTED_FORMAT_ERROR", context)
 
 
+class ResumeParsingError(ResumeAssistantError):
+    """Resume parsing related errors."""
+    
+    def __init__(
+        self, 
+        message: str, 
+        file_path: Optional[str] = None,
+        parser_type: Optional[str] = None
+    ):
+        context = {}
+        if file_path:
+            context["file_path"] = file_path
+        if parser_type:
+            context["parser_type"] = parser_type
+        
+        super().__init__(message, "RESUME_PARSING_ERROR", context)
+
+
 # Error severity levels
 class ErrorSeverity:
     """Error severity levels."""
