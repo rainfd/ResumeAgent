@@ -4,8 +4,12 @@
 import sys
 from pathlib import Path
 
-from .config import get_settings
-from .utils import configure_logging, get_logger, error_handler
+# 添加项目根目录到 Python 路径
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+from src.resume_assistant.config import get_settings
+from src.resume_assistant.utils import configure_logging, get_logger, error_handler
 
 
 def main() -> None:
@@ -24,7 +28,7 @@ def main() -> None:
         print("Starting TUI application...")
         
         # Initialize and run the TUI application
-        from .ui.app import ResumeAssistantApp
+        from src.resume_assistant.ui.app import ResumeAssistantApp
         
         logger.info("Initializing TUI application")
         app = ResumeAssistantApp()

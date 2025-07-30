@@ -28,5 +28,25 @@
     "created_at": "2025-07-30T10:58:31.554895",
     "updated_at": "2025-07-30T10:58:31.554897",
     "content_file": "data/jobs/594e9122-8f0e-499f-87c9-0f92d1d4e2d8.json"
+  },
+  "d61f81f2-59b8-4698-a477-3dc8057db1bf": {
+    "id": "d61f81f2-59b8-4698-a477-3dc8057db1bf",
+    "title": "Python开发工程师",
+    "company": "XX科技有限公司",
+    "location": "北京",
+    "status": "active",
+    "created_at": "2025-07-30T16:48:07.942421",
+    "updated_at": "2025-07-30T16:48:07.942430",
+    "content_file": "data/jobs/d61f81f2-59b8-4698-a477-3dc8057db1bf.json"
+  },
+  "7188e288-d05a-4c83-9e85-a40c7b4a07a5": {
+    "id": "7188e288-d05a-4c83-9e85-a40c7b4a07a5",
+    "title": "Python开发工程师",
+    "company": "XX科技有限公司",
+    "location": "北京",
+    "status": "active",
+    "created_at": "2025-07-30T17:23:32.183260",
+    "updated_at": "2025-07-30T17:23:32.183268",
+    "content_file": "data/jobs/7188e288-d05a-4c83-9e85-a40c7b4a07a5.json"
   }
 }

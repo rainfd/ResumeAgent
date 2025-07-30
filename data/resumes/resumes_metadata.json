@@ -1,0 +1,155 @@
+{
+  "39c51eed-11dc-43ed-8355-0d167d31275e": {
+    "id": "39c51eed-11dc-43ed-8355-0d167d31275e",
+    "filename": "test_resume_ai_engineer.pdf",
+    "file_type": "pdf",
+    "metadata": {
+      "original_path": "data/resumes/test_resume_ai_engineer.pdf",
+      "file_extension": "pdf",
+      "word_count": 448,
+      "char_count": 3292,
+      "sections_count": 0,
+      "parsed_at": "2025-07-30T12:11:23.052260",
+      "parser_metadata": {
+        "file_size": 19500,
+        "text_length": 3292,
+        "sections_count": 0,
+        "extraction_method": "automatic"
+      }
+    },
+    "created_at": "2025-07-30T12:11:23.052381",
+    "updated_at": "2025-07-30T12:11:23.052382",
+    "file_path": "data/resumes/test_resume_ai_engineer.pdf",
+    "file_size": 19500,
+    "content_file": "data/resumes/39c51eed-11dc-43ed-8355-0d167d31275e.txt",
+    "personal_info": {
+      "name": "Master Expe",
+      "email": "zhaoliu@example.com",
+      "age": "27"
+    },
+    "skills": [],
+    "work_experience": [],
+    "education": [],
+    "projects": [],
+    "sections": []
+  },
+  "0f89fed3-50ce-479d-bfe4-837e9b711c4c": {
+    "id": "0f89fed3-50ce-479d-bfe4-837e9b711c4c",
+    "filename": "test_resume_1.md",
+    "file_type": "markdown",
+    "metadata": {
+      "original_path": "data/resumes/test_resume_1.md",
+      "file_extension": "markdown",
+      "word_count": 177,
+      "char_count": 1433,
+      "sections_count": 5,
+      "parsed_at": "2025-07-30T12:11:23.056423",
+      "parser_metadata": {
+        "file_size": 2591,
+        "text_length": 1433,
+        "sections_count": 5,
+        "extraction_method": "automatic"
+      }
+    },
+    "created_at": "2025-07-30T12:11:23.056479",
+    "updated_at": "2025-07-30T12:11:23.056481",
+    "file_path": "data/resumes/test_resume_1.md",
+    "file_size": 2591,
+    "content_file": "data/resumes/0f89fed3-50ce-479d-bfe4-837e9b711c4c.txt",
+    "personal_info": {
+      "name": "# 张三",
+      "email": "zhangsan@example.com"
+    },
+    "skills": [
+      "**后端了解**: Node.js, Express, MongoDB",
+      "- **前端技术**",
+      "- **工程化**",
+      "- **工具**",
+      "**工程化**: Webpack, Vite, npm/yarn, Git",
+      "**UI框架**: Ant Design, Element UI, Bootstrap",
+      "- **框架库**",
+      "- **后端了解**",
+      "**工具**: VSCode, Chrome DevTools, Figma",
+      "- **UI框架**",
+      "**框架库**: React, Vue.js, Angular, jQuery"
+    ],
+    "work_experience": [
+      {
+        "company": "### 互联网科技有限公司",
+        "position": "前端开发工程师",
+        "duration": "2022.07-至今"
+      },
+      {
+        "company": "### 创业公司A",
+        "position": "前端实习生",
+        "duration": "2022.02-2022.06"
+      }
+    ],
+    "education": [
+      {
+        "duration": "2018.09-2022.06",
+        "school": "*",
+        "major": "*",
+        "degree": "主要课程**: 数据结构、算法分析、计算机网络、数据库原理、软件工程"
+      }
+    ],
+    "projects": [
+      {
+        "name": "### 个人博客系统",
+        "description": ""
+      },
+      {
+        "name": "**技术栈**",
+        "description": ""
+      },
+      {
+        "name": "**项目描述**",
+        "description": ""
+      },
+      {
+        "name": "### 天气预报小程序",
+        "description": ""
+      },
+      {
+        "name": "**技术栈**",
+        "description": ""
+      },
+      {
+        "name": "**项目描述**",
+        "description": ""
+      }
+    ],
+    "sections": [
+      {
+        "title": "基本信息",
+        "content": ":: left\n\n- 3年前端开发经验\n\n- 个人信息: 男 26岁\n\n- 教育经历: 2018.09~2022.06 北京理工大学 计算机科学与技术 本科\n\n:::\n\n:::right\n\n- 电话: 138****8888\n\n- 邮箱: zhangsan@example.com\n\n- GitHub: https://github.com/zhangsan\n\n- 期望薪资: 15-25K\n\n:::",
+        "start_pos": 16,
+        "end_pos": 216
+      },
+      {
+        "title": "专业技能",
+        "content": "- **前端技术**: HTML5, CSS3, JavaScript(ES6+), TypeScript\n- **框架库**: React, Vue.js, Angular, jQuery\n- **工程化**: Webpack, Vite, npm/yarn, Git\n- **UI框架**: Ant Design, Element UI, Bootstrap\n- **后端了解**: Node.js, Express, MongoDB\n- **工具**: VSCode, Chrome DevTools, Figma",
+        "start_pos": 227,
+        "end_pos": 487
+      },
+      {
+        "title": "工作经历",
+        "content": "### 互联网科技有限公司 | 前端开发工程师 | 2022.07-至今\n\n**主要职责:**\n- 负责公司主要产品的前端开发和维护\n- 参与产品需求分析和技术方案设计\n- 优化页面性能，提升用户体验\n\n**项目经验:**\n- **电商管理系统**: 使用React+TypeScript开发，负责商品管理、订单处理等核心模块\n- **数据可视化平台**: 基于Vue.js和ECharts开发，实现复杂图表展示和实时数据更新\n- **移动端H5项目**: 使用原生JS和CSS3实现响应式设计，兼容多种设备\n\n### 创业公司A | 前端实习生 | 2022.02-2022.06\n\n**主要工作:**\n- 学习React框架，参与公司内部工具开发\n- 协助完成官网重构项目\n- 学习前端工程化和团队协作流程",
+        "start_pos": 498,
+        "end_pos": 853
+      },
+      {
+        "title": "项目经历",
+        "content": "### 个人博客系统 | 2023.03-2023.05\n\n**技术栈**: React + Node.js + MongoDB + Express\n\n**项目描述**: \n- 独立开发的全栈博客系统，支持文章发布、评论、分类等功能\n- 前端使用React Hooks实现组件化开发\n- 后端API使用Express框架，数据存储使用MongoDB\n- 实现了用户认证、权限管理等功能\n\n### 天气预报小程序 | 2022.09-2022.10\n\n**技术栈**: 微信小程序 + JavaScript\n\n**项目描述**:\n- 基于微信小程序开发的天气预报应用\n- 集成第三方天气API，实现实时天气查询\n- 支持定位功能和多城市天气对比\n- 优化用户界面和交互体验",
+        "start_pos": 864,
+        "end_pos": 1199
+      },
+      {
+        "title": "教育经历",
+        "content": "### 北京理工大学 | 计算机科学与技术 | 本科 | 2018.09-2022.06\n\n**主要课程**: 数据结构、算法分析、计算机网络、数据库原理、软件工程\n\n**荣誉奖项**: \n- 2020-2021学年三等奖学金\n- 2021年大学生程序设计竞赛校内二等奖\n\n## 自我评价\n\n- 对前端技术有浓厚兴趣，学习能力强，能快速掌握新技术\n- 具备良好的代码习惯和文档意识\n- 有团队协作经验，沟通能力良好\n- 关注用户体验，注重产品细节",
+        "start_pos": 1210,
+        "end_pos": 1433
+      }
+    ]
+  }
+}

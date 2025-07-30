@@ -7,7 +7,7 @@ import json
 import uuid
 from datetime import datetime
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from ..utils import get_logger
@@ -27,6 +27,11 @@ class Job:
     location: Optional[str] = None
     salary: Optional[str] = None
     experience_level: Optional[str] = None
+    education_level: Optional[str] = None
+    job_type: Optional[str] = None
+    tags: Optional[List[str]] = None
+    company_info: Optional[Dict] = None
+    contact_info: Optional[Dict] = None
     source_url: Optional[str] = None  # 职位来源链接
     status: str = "active"  # active, archived, applied
     created_at: datetime = None
@@ -37,6 +42,12 @@ class Job:
             self.created_at = datetime.now()
         if self.updated_at is None:
             self.updated_at = datetime.now()
+        if self.tags is None:
+            self.tags = []
+        if self.company_info is None:
+            self.company_info = {}
+        if self.contact_info is None:
+            self.contact_info = {}
 
 
 class JobStorage:
@@ -210,6 +221,7 @@ class JobManager:
             storage_dir: 存储目录路径
         """
         self.storage = JobStorage(storage_dir)
+        self._scraper = None  # 延迟加载爬虫
     
     def create_job(self, title: str, company: str, description: str, requirements: str,
                    location: Optional[str] = None, salary: Optional[str] = None,
@@ -374,3 +386,123 @@ class JobManager:
         
         logger.info(f"创建了 {len(created_jobs)} 个示例职位")
         return created_jobs
+    
+    def _get_scraper(self):
+        """获取爬虫实例（延迟加载）"""
+        if self._scraper is None:
+            try:
+                from .scraper import create_scraper
+                self._scraper = create_scraper('boss')
+            except ImportError as e:
+                logger.warning(f"爬虫模块不可用: {e}")
+                return None
+        return self._scraper
+    
+    def scrape_job_from_url(self, url: str) -> Optional[Job]:
+        """从URL爬取职位信息
+        
+        Args:
+            url: 职位页面URL
+            
+        Returns:
+            Job: 爬取成功的职位对象，失败返回None
+        """
+        scraper = self._get_scraper()
+        if not scraper:
+            logger.error("爬虫功能不可用")
+            return None
+        
+        try:
+            logger.info(f"开始爬取职位: {url}")
+            result = scraper.scrape_job(url)
+            
+            if result.success and result.job:
+                # 保存爬取的职位
+                if self.storage.save_job(result.job):
+                    logger.info(f"职位爬取并保存成功: {result.job.title} @ {result.job.company}")
+                    return result.job
+                else:
+                    logger.error("职位保存失败")
+                    return None
+            else:
+                logger.error(f"职位爬取失败: {result.error}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"爬取过程发生异常: {e}")
+            return None
+    
+    def batch_scrape_jobs(self, urls: List[str]) -> List[Job]:
+        """批量爬取职位信息
+        
+        Args:
+            urls: 职位页面URL列表
+            
+        Returns:
+            List[Job]: 成功爬取的职位列表
+        """
+        scraper = self._get_scraper()
+        if not scraper:
+            logger.error("爬虫功能不可用")
+            return []
+        
+        successful_jobs = []
+        
+        for i, url in enumerate(urls, 1):
+            try:
+                logger.info(f"爬取进度 {i}/{len(urls)}: {url}")
+                job = self.scrape_job_from_url(url)
+                if job:
+                    successful_jobs.append(job)
+                
+                # 添加延时避免被封
+                import time
+                import random
+                time.sleep(random.uniform(2, 5))
+                
+            except Exception as e:
+                logger.error(f"批量爬取出错 {url}: {e}")
+                continue
+        
+        logger.info(f"批量爬取完成，成功: {len(successful_jobs)}/{len(urls)}")
+        return successful_jobs
+    
+    def test_scraper_connection(self) -> bool:
+        """测试爬虫连接状态
+        
+        Returns:
+            bool: 连接正常返回True
+        """
+        scraper = self._get_scraper()
+        if not scraper:
+            return False
+        
+        try:
+            # 测试BOSS直聘首页连接
+            return scraper.test_connection("https://www.zhipin.com")
+        except Exception as e:
+            logger.error(f"爬虫连接测试失败: {e}")
+            return False
+    
+    def get_scraping_stats(self) -> Dict[str, Any]:
+        """获取爬虫统计信息
+        
+        Returns:
+            Dict: 统计信息
+        """
+        stats = {
+            'scraper_available': self._get_scraper() is not None,
+            'connection_ok': False,
+            'scraped_jobs_count': 0,
+            'supported_sites': ['BOSS直聘']
+        }
+        
+        # 测试连接
+        if stats['scraper_available']:
+            stats['connection_ok'] = self.test_scraper_connection()
+        
+        # 统计爬取的职位数量（有source_url的职位）
+        jobs = self.list_jobs()
+        stats['scraped_jobs_count'] = len([j for j in jobs if j.source_url])
+        
+        return stats

@@ -194,22 +194,31 @@ class ResumeAssistantApp:
             self.logger.error(f"加载职位列表失败: {e}")
             job_table.add_row("错误", f"加载失败: {str(e)}", "-", "-", "❌ 错误")
         
+        # 获取爬虫状态
+        scraping_stats = self.job_manager.get_scraping_stats()
+        scraper_status = "🟢 可用" if scraping_stats['scraper_available'] else "🔴 不可用"
+        connection_status = "🟢 正常" if scraping_stats.get('connection_ok', False) else "🟡 异常"
+        
         # 创建功能说明
         info_panel = (InfoPanel("功能操作", "blue")
                      .add_header("当前功能")
                      .add_line("• 职位列表展示", "green")
-                     .add_line("• 示例职位数据", "green")
+                     .add_line("• 网页爬虫支持", "green")
                      .add_line("• 职位状态管理", "green")
+                     .add_separator()
+                     .add_header("爬虫状态")
+                     .add_key_value("爬虫引擎", scraper_status)
+                     .add_key_value("网络连接", connection_status)
+                     .add_key_value("已爬职位", str(scraping_stats.get('scraped_jobs_count', 0)))
                      .add_separator()
                      .add_header("操作说明")
                      .add_line("a - 添加新职位", "yellow")
+                     .add_line("c - 从URL爬取职位", "yellow")
                      .add_line("v - 查看职位详情", "yellow")
                      .add_line("d - 删除职位", "yellow")
                      .add_separator()
-                     .add_header("支持功能")
-                     .add_line("• 职位信息管理", "cyan")
-                     .add_line("• AI分析配对", "cyan")
-                     .add_line("• 状态跟踪", "cyan"))
+                     .add_header("支持网站")
+                     .add_line("• BOSS直聘 (zhipin.com)", "cyan"))
         
         # 组合内容
         from rich.columns import Columns
@@ -520,6 +529,22 @@ class ResumeAssistantApp:
         elif key == 'd' and self.current_panel == "AI分析":
             # 删除分析记录
             self._handle_analysis_delete()
+            return True
+        elif key == 'a' and self.current_panel == "职位管理":
+            # 添加新职位
+            self._handle_job_add()
+            return True
+        elif key == 'c' and self.current_panel == "职位管理":
+            # 从URL爬取职位
+            self._handle_job_scrape()
+            return True
+        elif key == 'v' and self.current_panel == "职位管理":
+            # 查看职位详情
+            self._handle_job_view()
+            return True
+        elif key == 'd' and self.current_panel == "职位管理":
+            # 删除职位
+            self._handle_job_delete()
             return True
         
         return True
@@ -1309,6 +1334,257 @@ class ResumeAssistantApp:
         except Exception as e:
             self.console.print(f"[red]删除操作失败: {e}[/red]")
             self.logger.error(f"分析删除失败: {e}")
+    
+    def _handle_job_add(self):
+        """处理添加新职位"""
+        try:
+            self.console.print("\n[bold]添加新职位[/bold]")
+            
+            from rich.prompt import Prompt
+            
+            # 获取职位信息
+            title = Prompt.ask("职位名称", default="")
+            if not title.strip():
+                self.console.print("[yellow]职位名称不能为空[/yellow]")
+                return
+            
+            company = Prompt.ask("公司名称", default="")
+            if not company.strip():
+                self.console.print("[yellow]公司名称不能为空[/yellow]")
+                return
+            
+            location = Prompt.ask("工作地点", default="")
+            salary = Prompt.ask("薪资范围", default="")
+            experience = Prompt.ask("经验要求", default="")
+            description = Prompt.ask("职位描述", default="")
+            requirements = Prompt.ask("职位要求", default="")
+            
+            # 创建职位
+            job = self.job_manager.create_job(
+                title=title,
+                company=company,
+                description=description or "暂无描述",
+                requirements=requirements or "暂无要求",
+                location=location or None,
+                salary=salary or None,
+                experience_level=experience or None
+            )
+            
+            self.console.print(f"[green]✅ 职位添加成功: {job.title} @ {job.company}[/green]")
+            self.logger.info(f"职位添加成功: {job.title}")
+            
+        except Exception as e:
+            self.console.print(f"[red]添加职位失败: {e}[/red]")
+            self.logger.error(f"职位添加失败: {e}")
+    
+    def _handle_job_scrape(self):
+        """处理从URL爬取职位"""
+        try:
+            self.console.print("\n[bold]从URL爬取职位信息[/bold]")
+            
+            from rich.prompt import Prompt
+            
+            # 获取URL
+            url = Prompt.ask("请输入职位页面URL", default="")
+            if not url.strip():
+                self.console.print("[yellow]URL不能为空[/yellow]")
+                return
+            
+            # 验证URL格式
+            if not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+            
+            # 显示爬取进度
+            self.console.print(f"[cyan]🤖 正在爬取职位信息: {url}[/cyan]")
+            
+            # 开始爬取
+            job = self.job_manager.scrape_job_from_url(url)
+            
+            if job:
+                self.console.print(f"[green]✅ 职位爬取成功![/green]")
+                self.console.print(f"职位: {job.title}")
+                self.console.print(f"公司: {job.company}")
+                self.console.print(f"地点: {job.location or 'N/A'}")
+                self.console.print(f"薪资: {job.salary or 'N/A'}")
+                self.logger.info(f"职位爬取成功: {job.title}")
+            else:
+                self.console.print("[red]❌ 职位爬取失败[/red]")
+                self.console.print("[yellow]可能的原因：[/yellow]")
+                self.console.print("• URL格式不正确")
+                self.console.print("• 网站不支持或页面结构变化")
+                self.console.print("• 网络连接问题")
+                self.console.print("• 被反爬机制拦截")
+            
+            input("\n按回车键继续...")
+            
+        except Exception as e:
+            self.console.print(f"[red]爬取职位失败: {e}[/red]")
+            self.logger.error(f"职位爬取失败: {e}")
+            input("\n按回车键继续...")
+    
+    def _handle_job_view(self):
+        """处理查看职位详情"""
+        try:
+            jobs = self.job_manager.list_jobs()
+            if not jobs:
+                self.console.print("[yellow]没有可查看的职位[/yellow]")
+                return
+            
+            # 显示职位列表供选择
+            self.console.print("\n[bold]选择要查看的职位:[/bold]")
+            for i, job in enumerate(jobs, 1):
+                status_icon = "🟢" if job.status == "active" else "📁" if job.status == "archived" else "📤"
+                scrape_indicator = "🌐" if job.source_url else "📝"
+                self.console.print(f"{i}. {scrape_indicator} {job.title} @ {job.company} ({job.location or 'N/A'}) {status_icon}")
+            
+            # 获取用户选择
+            from rich.prompt import IntPrompt
+            try:
+                choice = IntPrompt.ask(
+                    "输入职位序号",
+                    default=1,
+                    choices=[str(i) for i in range(1, len(jobs) + 1)]
+                )
+                
+                selected_job = jobs[choice - 1]
+                self._show_job_details(selected_job)
+                
+            except (KeyboardInterrupt, EOFError):
+                self.console.print("[yellow]取消查看操作[/yellow]")
+                
+        except Exception as e:
+            self.console.print(f"[red]查看操作失败: {e}[/red]")
+            self.logger.error(f"职位查看失败: {e}")
+    
+    def _show_job_details(self, job):
+        """显示职位详情"""
+        detail_lines = []
+        
+        # 标题
+        detail_lines.extend([
+            f"💼 职位详情 - {job.title}",
+            "=" * 60,
+            ""
+        ])
+        
+        # 基本信息
+        detail_lines.extend([
+            "📋 基本信息:",
+            f"  职位名称: {job.title}",
+            f"  公司名称: {job.company}",
+            f"  工作地点: {job.location or 'N/A'}",
+            f"  薪资范围: {job.salary or 'N/A'}",
+            f"  经验要求: {job.experience_level or 'N/A'}",
+            f"  学历要求: {job.education_level or 'N/A'}",
+            f"  职位类型: {job.job_type or 'N/A'}",
+            f"  职位状态: {job.status}",
+            ""
+        ])
+        
+        # 来源信息
+        if job.source_url:
+            detail_lines.extend([
+                "🌐 来源信息:",
+                f"  来源URL: {job.source_url}",
+                f"  爬取来源: 网页爬虫",
+                ""
+            ])
+        else:
+            detail_lines.extend([
+                "📝 来源信息:",
+                "  录入方式: 手动添加",
+                ""
+            ])
+        
+        # 职位标签
+        if job.tags:
+            detail_lines.extend([
+                "🏷 职位标签:",
+                *[f"  • {tag}" for tag in job.tags],
+                ""
+            ])
+        
+        # 公司信息
+        if job.company_info:
+            detail_lines.extend([
+                "🏢 公司信息:",
+                *[f"  {key}: {value}" for key, value in job.company_info.items()],
+                ""
+            ])
+        
+        # 职位描述
+        if job.description:
+            detail_lines.extend([
+                "📖 职位描述:",
+                "-" * 40,
+                ""
+            ])
+            detail_lines.extend(job.description.split('\n'))
+            detail_lines.append("")
+        
+        # 职位要求
+        if job.requirements:
+            detail_lines.extend([
+                "📝 职位要求:",
+                "-" * 40,
+                ""
+            ])
+            detail_lines.extend(job.requirements.split('\n'))
+            detail_lines.append("")
+        
+        # 时间信息
+        detail_lines.extend([
+            "⏰ 时间信息:",
+            f"  创建时间: {job.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"  更新时间: {job.updated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        ])
+        
+        # 启动滚动查看器
+        self._run_content_viewer(detail_lines, f"职位详情 - {job.title}")
+    
+    def _handle_job_delete(self):
+        """处理删除职位"""
+        try:
+            jobs = self.job_manager.list_jobs()
+            if not jobs:
+                self.console.print("[yellow]没有可删除的职位[/yellow]")
+                return
+            
+            # 显示职位列表供选择
+            self.console.print("\n[bold]选择要删除的职位:[/bold]")
+            for i, job in enumerate(jobs, 1):
+                status_icon = "🟢" if job.status == "active" else "📁" if job.status == "archived" else "📤"
+                scrape_indicator = "🌐" if job.source_url else "📝"
+                self.console.print(f"{i}. {scrape_indicator} {job.title} @ {job.company} {status_icon}")
+            
+            # 获取用户选择
+            from rich.prompt import IntPrompt
+            try:
+                choice = IntPrompt.ask(
+                    "输入职位序号",
+                    default=1,
+                    choices=[str(i) for i in range(1, len(jobs) + 1)]
+                )
+                
+                selected_job = jobs[choice - 1]
+                
+                # 确认删除
+                from rich.prompt import Confirm
+                if Confirm.ask(f"确定要删除 '{selected_job.title} @ {selected_job.company}' 吗？", default=False):
+                    if self.job_manager.delete_job(selected_job.id):
+                        self.console.print(f"[green]✅ 已删除: {selected_job.title}[/green]")
+                        self.logger.info(f"职位删除成功: {selected_job.title}")
+                    else:
+                        self.console.print("[red]❌ 删除失败[/red]")
+                else:
+                    self.console.print("[yellow]取消删除操作[/yellow]")
+                        
+            except (KeyboardInterrupt, EOFError):
+                self.console.print("[yellow]取消删除操作[/yellow]")
+                
+        except Exception as e:
+            self.console.print(f"[red]删除操作失败: {e}[/red]")
+            self.logger.error(f"职位删除失败: {e}")
 
 
 if __name__ == "__main__":
