@@ -10,7 +10,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application configuration settings."""
     
-    # AI Service Configuration
+    # AI Agent Configuration
+    agent_type: str = Field(default="deepseek", description="LLM Agent type")
     deepseek_api_key: str = Field(default="", description="DeepSeek API key")
     deepseek_base_url: str = Field(
         default="https://api.deepseek.com", 

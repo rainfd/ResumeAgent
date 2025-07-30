@@ -21,11 +21,16 @@ def main() -> None:
         
         print("🚀 Resume Assistant v0.1.0")
         print("📝 AI-powered resume optimization tool")
-        print("Starting application...")
+        print("Starting TUI application...")
         
-        # TODO: Initialize and run the TUI application
-        logger.info("Application initialization complete")
-        print("✅ Application initialization complete.")
+        # Initialize and run the TUI application
+        from .ui.app import ResumeAssistantApp
+        
+        logger.info("Initializing TUI application")
+        app = ResumeAssistantApp()
+        
+        logger.info("Application initialization complete, starting UI")
+        app.run()
         
     except KeyboardInterrupt:
         print("\n⏹️  Application interrupted by user.")

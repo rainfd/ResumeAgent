@@ -128,6 +128,42 @@ class ValidationError(ResumeAssistantError):
         super().__init__(message, "VALIDATION_ERROR", context)
 
 
+class ResumeProcessingError(ResumeAssistantError):
+    """Resume file processing related errors."""
+    
+    def __init__(
+        self, 
+        message: str, 
+        file_path: Optional[str] = None,
+        operation: Optional[str] = None
+    ):
+        context = {}
+        if file_path:
+            context["file_path"] = file_path
+        if operation:
+            context["operation"] = operation
+        
+        super().__init__(message, "RESUME_PROCESSING_ERROR", context)
+
+
+class UnsupportedFormatError(ResumeAssistantError):
+    """Unsupported file format related errors."""
+    
+    def __init__(
+        self, 
+        message: str, 
+        file_format: Optional[str] = None,
+        supported_formats: Optional[list] = None
+    ):
+        context = {}
+        if file_format:
+            context["file_format"] = file_format
+        if supported_formats:
+            context["supported_formats"] = supported_formats
+        
+        super().__init__(message, "UNSUPPORTED_FORMAT_ERROR", context)
+
+
 # Error severity levels
 class ErrorSeverity:
     """Error severity levels."""

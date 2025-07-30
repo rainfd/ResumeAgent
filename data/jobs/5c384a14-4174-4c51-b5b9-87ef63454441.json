@@ -1,0 +1,14 @@
+{
+  "id": "5c384a14-4174-4c51-b5b9-87ef63454441",
+  "title": "Python后端开发工程师",
+  "company": "科技有限公司A",
+  "description": "负责公司核心业务系统的后端开发，包括API设计、数据库优化、微服务架构等工作。",
+  "requirements": "1. 3年以上Python开发经验；2. 熟悉Django/Flask框架；3. 熟悉MySQL/Redis；4. 了解微服务架构；5. 有团队协作经验。",
+  "location": "北京",
+  "salary": "20-35K",
+  "experience_level": "3-5年",
+  "source_url": null,
+  "status": "active",
+  "created_at": "2025-07-30 10:58:31.553758",
+  "updated_at": "2025-07-30 10:58:31.553760"
+}

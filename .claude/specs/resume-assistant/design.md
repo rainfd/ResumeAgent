@@ -148,11 +148,31 @@ class ResumeParser:
         pass
 ```
 
-#### 2.3 AI Analyzer 组件
+#### 2.3 AI Agent 组件架构
 
 ```python
-class AIAnalyzer:
-    """AI分析器"""
+from abc import ABC, abstractmethod
+
+class LLMAgent(ABC):
+    """LLM Agent 抽象基类"""
+    
+    @abstractmethod
+    async def analyze_match(self, job: JobInfo, resume: ResumeContent) -> MatchAnalysis:
+        """分析简历与职位匹配度"""
+        pass
+        
+    @abstractmethod
+    async def generate_optimization(self, analysis: MatchAnalysis) -> List[OptimizationSuggestion]:
+        """生成优化建议"""
+        pass
+        
+    @abstractmethod
+    async def generate_greeting(self, job: JobInfo, resume: ResumeContent) -> List[GreetingMessage]:
+        """生成打招呼语"""
+        pass
+
+class DeepSeekAgent(LLMAgent):
+    """DeepSeek LLM Agent 实现"""
     
     def __init__(self, api_key: str, base_url: str):
         self.client = httpx.AsyncClient()
@@ -160,16 +180,32 @@ class AIAnalyzer:
         self.base_url = base_url
     
     async def analyze_match(self, job: JobInfo, resume: ResumeContent) -> MatchAnalysis:
-        """分析简历与职位匹配度"""
+        """使用DeepSeek分析简历与职位匹配度"""
         pass
         
     async def generate_optimization(self, analysis: MatchAnalysis) -> List[OptimizationSuggestion]:
-        """生成优化建议"""
+        """使用DeepSeek生成优化建议"""
         pass
         
     async def generate_greeting(self, job: JobInfo, resume: ResumeContent) -> List[GreetingMessage]:
-        """生成打招呼语"""
+        """使用DeepSeek生成打招呼语"""
         pass
+
+class AgentFactory:
+    """Agent工厂类，用于创建不同的LLM Agent"""
+    
+    @staticmethod
+    def create_agent(agent_type: str, **kwargs) -> LLMAgent:
+        """创建指定类型的Agent"""
+        if agent_type.lower() == "deepseek":
+            return DeepSeekAgent(kwargs.get("api_key"), kwargs.get("base_url"))
+        # 未来可以添加其他LLM Agent:
+        # elif agent_type.lower() == "openai":
+        #     return OpenAIAgent(kwargs.get("api_key"))
+        # elif agent_type.lower() == "claude":
+        #     return ClaudeAgent(kwargs.get("api_key"))
+        else:
+            raise ValueError(f"Unsupported agent type: {agent_type}")
 ```
 
 ### 3. 数据访问组件

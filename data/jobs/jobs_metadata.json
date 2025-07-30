@@ -1,0 +1,32 @@
+{
+  "5c384a14-4174-4c51-b5b9-87ef63454441": {
+    "id": "5c384a14-4174-4c51-b5b9-87ef63454441",
+    "title": "Python后端开发工程师",
+    "company": "科技有限公司A",
+    "location": "北京",
+    "status": "active",
+    "created_at": "2025-07-30T10:58:31.553758",
+    "updated_at": "2025-07-30T10:58:31.553760",
+    "content_file": "data/jobs/5c384a14-4174-4c51-b5b9-87ef63454441.json"
+  },
+  "2b62bee0-3659-47a0-b175-efa18e0eaa44": {
+    "id": "2b62bee0-3659-47a0-b175-efa18e0eaa44",
+    "title": "AI算法工程师",
+    "company": "人工智能科技B",
+    "location": "上海",
+    "status": "active",
+    "created_at": "2025-07-30T10:58:31.554379",
+    "updated_at": "2025-07-30T10:58:31.554381",
+    "content_file": "data/jobs/2b62bee0-3659-47a0-b175-efa18e0eaa44.json"
+  },
+  "594e9122-8f0e-499f-87c9-0f92d1d4e2d8": {
+    "id": "594e9122-8f0e-499f-87c9-0f92d1d4e2d8",
+    "title": "全栈开发工程师",
+    "company": "互联网公司C",
+    "location": "深圳",
+    "status": "active",
+    "created_at": "2025-07-30T10:58:31.554895",
+    "updated_at": "2025-07-30T10:58:31.554897",
+    "content_file": "data/jobs/594e9122-8f0e-499f-87c9-0f92d1d4e2d8.json"
+  }
+}
