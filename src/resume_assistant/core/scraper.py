@@ -448,8 +448,13 @@ class BossZhipinScraper(JobScraper):
 class PlaywrightScraper(JobScraper):
     """基于Playwright的职位爬虫"""
     
-    def __init__(self):
-        """初始化Playwright爬虫"""
+    def __init__(self, headless: bool = False, user_data_dir: Optional[str] = None):
+        """初始化Playwright爬虫
+        
+        Args:
+            headless: 是否使用无头模式，False为有头模式（更难被检测）
+            user_data_dir: 用户数据目录路径，用于保持登录状态
+        """
         if not HAS_PLAYWRIGHT_SUPPORT:
             raise ResumeAssistantError("Playwright依赖库未安装。请安装: pip install playwright")
         
@@ -457,40 +462,83 @@ class PlaywrightScraper(JobScraper):
         self.playwright = None
         self.browser = None
         self.context = None
+        self.headless = headless
+        self.user_data_dir = user_data_dir
     
     def _setup_browser(self):
         """设置浏览器"""
         if not self.playwright:
             self.playwright = sync_playwright().start()
-            
-        # 启动Chromium浏览器（增强反检测）
-        self.browser = self.playwright.chromium.launch(
-            headless=True,  # 无头模式
-            args=[
-                '--no-sandbox',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-web-security',
-                '--disable-features=VizDisplayCompositor',
-                '--disable-dev-shm-usage',
-                '--disable-extensions',
-                '--disable-plugins',
-                '--disable-images',  # 禁用图片加载以提高速度
-                '--disable-javascript-harmony-shipping',
-                '--no-first-run',
-                '--no-default-browser-check',
-                '--disable-default-apps'
-            ]
-        )
         
-        # 创建浏览器上下文
-        self.context = self.browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            viewport={'width': 1920, 'height': 1080},
-            extra_http_headers={
+        # 浏览器启动参数（增强反检测）
+        launch_args = [
+            '--no-sandbox',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor',
+            '--disable-dev-shm-usage',
+            '--disable-extensions-except=',
+            '--disable-plugins-discovery',
+            '--disable-javascript-harmony-shipping',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-default-apps',
+            '--disable-popup-blocking',
+            '--disable-translate',
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--disable-device-discovery-notifications',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-ipc-flooding-protection'
+        ]
+        
+        # 如果不是无头模式，移除一些可能影响显示的参数
+        if not self.headless:
+            # 移除可能影响显示的参数
+            launch_args = [arg for arg in launch_args if 'disable-images' not in arg]
+            self.logger.info("启动有头浏览器模式（更难被检测）")
+        else:
+            # 无头模式添加更多优化参数
+            launch_args.extend([
+                '--disable-images',  # 禁用图片加载以提高速度
+                '--disable-audio-output'
+            ])
+            
+        # 创建浏览器上下文选项
+        context_options = {
+            'user_agent': self._get_random_user_agent(),
+            'viewport': {'width': 1920, 'height': 1080},
+            'extra_http_headers': {
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none'
             }
-        )
+        }
+        
+        # 如果指定了用户数据目录，使用持久化上下文
+        if self.user_data_dir:
+            self.logger.info(f"使用用户数据目录: {self.user_data_dir}")
+            # 使用持久化上下文
+            self.context = self.playwright.chromium.launch_persistent_context(
+                user_data_dir=self.user_data_dir,
+                headless=self.headless,
+                args=launch_args,
+                **context_options
+            )
+            # 持久化上下文本身就是browser和context的组合
+            self.browser = None  # 持久化模式下不需要单独的browser对象
+        else:
+            # 常规模式：先创建browser，再创建context
+            self.browser = self.playwright.chromium.launch(
+                headless=self.headless,
+                args=launch_args
+            )
+            self.context = self.browser.new_context(**context_options)
     
     def _cleanup_browser(self):
         """清理浏览器资源"""
@@ -507,6 +555,117 @@ class PlaywrightScraper(JobScraper):
             self.context = None
             self.browser = None
             self.playwright = None
+    
+    def _get_random_user_agent(self) -> str:
+        """获取随机User-Agent"""
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ]
+        return random.choice(user_agents)
+    
+    def _wait_for_manual_verification(self, page, timeout: int = 120) -> bool:
+        """等待用户手动处理验证码或登录
+        
+        Args:
+            page: Playwright页面对象
+            timeout: 等待超时时间（秒）
+            
+        Returns:
+            bool: 是否成功通过验证
+        """
+        try:
+            if self.headless:
+                self.logger.warning("检测到验证码但当前为无头模式，无法手动处理")
+                return False
+            
+            # 显眼的提示信息
+            print("\n" + "="*80)
+            print("🤖 检测到需要人工验证！")
+            print("="*80)
+            print("📋 请按以下步骤操作：")
+            print("   1. 在打开的浏览器窗口中完成IP验证或人机验证")
+            print("   2. 如果出现滑块验证，请拖动滑块到正确位置")
+            print("   3. 如果出现验证码，请按提示输入验证码")
+            print("   4. 等待页面跳转到正常的职位详情页面")
+            print("   5. 不要关闭浏览器窗口，程序会自动检测完成状态")
+            print()
+            print(f"⏰ 最大等待时间: {timeout} 秒")
+            print(f"🌐 当前页面: {page.url}")
+            print("💡 提示: 如需取消操作，请关闭浏览器窗口")
+            print("="*80)
+            
+            self.logger.info("等待用户手动完成验证...")
+            
+            # 等待页面URL变化或特定元素消失，表示用户已处理完验证
+            start_time = time.time()
+            current_url = page.url
+            check_interval = 2  # 缩短检查间隔到2秒，更快响应
+            
+            # 先等待2秒让用户看到提示
+            time.sleep(2)
+            
+            while time.time() - start_time < timeout:
+                try:
+                    elapsed = int(time.time() - start_time)
+                    remaining = timeout - elapsed
+                    
+                    # 更频繁显示进度（每10秒）
+                    if elapsed % 10 == 0 and elapsed > 0:
+                        print(f"⏳ 等待中... ({elapsed}/{timeout}秒) 剩余: {remaining}秒")
+                    
+                    # 首先快速检查是否不再是验证页面
+                    is_still_blocked = self._check_blocked_page(page)
+                    
+                    if not is_still_blocked:
+                        # 验证页面特征消失，确认验证通过
+                        print("✅ 验证完成！页面恢复正常")
+                        self.logger.info("验证页面特征消失，验证完成")
+                        return True
+                    
+                    # 检查URL是否变化（可能表示跳转）
+                    new_url = page.url
+                    if new_url != current_url:
+                        print(f"🔄 检测到页面跳转: {new_url}")
+                        current_url = new_url
+                        
+                        # 等待新页面稳定
+                        time.sleep(2)
+                        
+                        # 再次检查新页面是否需要验证
+                        if not self._check_blocked_page(page):
+                            print("✅ 跳转后的页面验证通过！")
+                            return True
+                        else:
+                            print("⚠️ 新页面仍需验证，继续等待...")
+                    
+                    # 检查浏览器是否已关闭（用户取消操作）
+                    try:
+                        page.title()  # 尝试访问页面，如果浏览器关闭会抛出异常
+                    except Exception:
+                        print("🚫 检测到浏览器已关闭，取消验证")
+                        return False
+                    
+                    time.sleep(check_interval)
+                    
+                except Exception as e:
+                    self.logger.debug(f"验证状态检查异常: {e}")
+                    # 可能是页面正在加载，继续等待
+                    time.sleep(check_interval)
+            
+            print("\n❌ 手动验证超时")
+            print("💡 提示: 如果您已完成验证但程序仍然超时，可以:")
+            print("   - 尝试刷新页面")
+            print("   - 重新运行程序")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"手动验证处理失败: {e}")
+            return False
     
     def scrape_job(self, url: str) -> ScrapingResult:
         """使用Playwright爬取职位信息
@@ -536,7 +695,7 @@ class PlaywrightScraper(JobScraper):
             try:
                 self.logger.info(f"使用Playwright访问: {url}")
                 
-                # 注入反检测脚本
+                # 注入增强反检测脚本
                 page.add_init_script("""
                     // 隐藏webdriver属性
                     Object.defineProperty(navigator, 'webdriver', {
@@ -546,36 +705,108 @@ class PlaywrightScraper(JobScraper):
                     // 伪造chrome对象
                     window.chrome = {
                         runtime: {},
+                        app: {
+                            isInstalled: false,
+                        },
+                        webstore: {
+                            onInstallStageChanged: {},
+                            onDownloadProgress: {},
+                        },
                     };
                     
-                    // 伪造插件
+                    // 伪造插件数组
                     Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5],
+                        get: () => {
+                            return [
+                                {
+                                    0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format", enabledPlugin: Plugin},
+                                    description: "Portable Document Format",
+                                    filename: "internal-pdf-viewer",
+                                    length: 1,
+                                    name: "Chrome PDF Plugin"
+                                },
+                                {
+                                    0: {type: "application/pdf", suffixes: "pdf", description: "", enabledPlugin: Plugin},
+                                    description: "",
+                                    filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                                    length: 1,
+                                    name: "Chrome PDF Viewer"
+                                }
+                            ];
+                        },
                     });
                     
-                    // 伪造语言
+                    // 伪造权限查询
+                    const originalQuery = window.navigator.permissions.query;
+                    window.navigator.permissions.query = (parameters) => (
+                        parameters.name === 'notifications' ?
+                            Promise.resolve({ state: Notification.permission }) :
+                            originalQuery(parameters)
+                    );
+                    
+                    // 伪造语言和平台
                     Object.defineProperty(navigator, 'languages', {
-                        get: () => ['zh-CN', 'zh', 'en'],
+                        get: () => ['zh-CN', 'zh', 'en-US', 'en'],
                     });
+                    
+                    Object.defineProperty(navigator, 'platform', {
+                        get: () => 'Win32',
+                    });
+                    
+                    // 移除自动化检测特征
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
                 """)
                 
                 # 访问页面，等待页面加载
                 page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 
                 # 等待一段时间让JavaScript执行
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(random.uniform(3000, 6000))
                 
-                # 尝试滚动页面以触发内容加载
+                # 模拟人类浏览行为
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3)")
+                page.wait_for_timeout(random.uniform(1000, 2000))
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(random.uniform(1000, 2000))
                 
-                # 检查是否需要处理验证码或登录
-                if self._check_blocked_page(page):
-                    return ScrapingResult(
-                        success=False,
-                        error="页面被拦截或需要验证",
-                        url=url
-                    )
+                # 首次检查是否需要处理验证码或登录
+                verification_detected = self._check_blocked_page(page)
+                
+                if verification_detected:
+                    page_title = page.title()
+                    page_url = page.url
+                    self.logger.warning(f"检测到验证页面: {page_title} - {page_url}")
+                    
+                    # 如果是有头模式，尝试等待用户手动处理
+                    if not self.headless:
+                        print(f"\n🔍 当前页面标题: {page_title}")
+                        print(f"🔗 页面URL: {page_url}")
+                        
+                        # 进入手动验证流程
+                        if self._wait_for_manual_verification(page):
+                            print("✅ 手动验证完成，继续爬取")
+                            self.logger.info("手动验证完成，继续爬取")
+                            
+                            # 验证完成后再次等待页面稳定
+                            page.wait_for_timeout(3000)
+                        else:
+                            print("❌ 验证处理失败或超时")
+                            return ScrapingResult(
+                                success=False,
+                                error="验证码处理失败或超时",
+                                url=url
+                            )
+                    else:
+                        return ScrapingResult(
+                            success=False,
+                            error="页面被拦截需要验证，建议使用有头模式",
+                            url=url
+                        )
+                else:
+                    # 没有检测到验证，记录正常访问
+                    self.logger.info(f"页面正常访问，无需验证: {page.title()}")
                 
                 # 获取页面HTML内容
                 html_content = page.content()
@@ -639,18 +870,117 @@ class PlaywrightScraper(JobScraper):
     def _check_blocked_page(self, page) -> bool:
         """检查页面是否被拦截"""
         try:
-            # 检查页面标题
-            title = page.title()
-            if any(keyword in title.lower() for keyword in ['验证', 'captcha', '登录', 'login', '请稍候']):
-                return True
+            # 获取页面基本信息
+            title = page.title().lower()
+            url = page.url.lower()
             
-            # 检查页面内容
-            body_text = page.inner_text('body') if page.query_selector('body') else ''
-            blocked_keywords = ['验证码', '人机验证', '请登录', '访问受限', '机器人']
+            # 检查是否是明确的验证页面标题
+            verification_titles = [
+                '安全验证',
+                '人机验证', 
+                '滑块验证',
+                '验证码验证',
+                'security verification',
+                'captcha verification',
+                '请完成验证'
+            ]
             
-            for keyword in blocked_keywords:
-                if keyword in body_text:
+            # 排除职位相关的标题
+            job_indicators = ['工程师', '专家', '岗位', '职位', '招聘', '-', '公司']
+            is_job_page = any(indicator in title for indicator in job_indicators)
+            
+            if not is_job_page:  # 只有在不是职位页面时才检查验证标题
+                for verification_title in verification_titles:
+                    if verification_title in title:
+                        self.logger.info(f"检测到验证页面标题: {title}")
+                        return True
+            
+            # 检查URL是否包含验证相关路径
+            verification_urls = [
+                '/captcha/',
+                '/verification/',
+                '/security/',
+                '/verify',
+                '/challenge'
+            ]
+            
+            for verification_url in verification_urls:
+                if verification_url in url:
+                    self.logger.info(f"检测到验证页面URL: {url}")
                     return True
+            
+            # 检查页面内容中的验证元素
+            try:
+                # 先检查是否是职位页面 - 如果是职位页面，则不太可能是验证页面
+                job_page_indicators = [
+                    '.job-detail',
+                    '.job-name',  
+                    '.job-title',
+                    '.position-detail',
+                    '.company-info',
+                    '.salary-info',
+                    '[class*="job-"]',
+                    '.boss-info'
+                ]
+                
+                is_job_page = False
+                for indicator in job_page_indicators:
+                    if page.query_selector(indicator):
+                        is_job_page = True
+                        break
+                
+                # 如果确定是职位页面，则不检查验证元素（避免误判）
+                if is_job_page:
+                    self.logger.debug("检测到职位页面，跳过验证元素检查")
+                    return False
+                
+                # 检查是否存在验证码相关的特定元素（更严格的选择器）
+                verification_selectors = [
+                    '.captcha-container',
+                    '.verification-container', 
+                    '.slide-verify',
+                    '.geetest_captcha',  # 更具体的极验验证
+                    '.yidun_panel',  # 网易云盾验证
+                    '.nc_wrapper',  # 阿里云滑块验证
+                    'div[class*="verify"]',  # 验证相关div
+                    'form[class*="verify"]'  # 验证相关表单
+                ]
+                
+                for selector in verification_selectors: 
+                    element = page.query_selector(selector)
+                    if element and element.is_visible():  # 确保元素可见
+                        self.logger.info(f"检测到验证元素: {selector}")
+                        return True
+                
+                # 检查特定的验证文本（更精确）
+                body_text = page.inner_text('body') if page.query_selector('body') else ''
+                
+                # 只检查明确的验证提示文本
+                specific_verification_texts = [
+                    '请拖动滑块完成验证',
+                    '点击按钮进行验证',
+                    '请点击完成验证',
+                    '安全验证中',
+                    '人机身份验证',
+                    '请输入验证码',
+                    '验证失败，请重试',
+                    '为了保护账号安全'
+                ]
+                
+                for verification_text in specific_verification_texts:
+                    if verification_text in body_text:
+                        self.logger.info(f"检测到验证文本: {verification_text}")
+                        return True
+                
+                # 检查页面内容长度，验证页面通常内容较少且包含特定验证词汇
+                if len(body_text.strip()) < 200:
+                    verification_indicators = ['请完成验证', '人机验证', '安全验证', '滑块验证', '验证码']
+                    if any(indicator in body_text for indicator in verification_indicators):
+                        self.logger.info(f"检测到简短的验证页面内容: {len(body_text)} 字符")
+                        return True
+                    
+            except Exception as e:
+                self.logger.debug(f"验证元素检查失败: {e}")
             
             return False
             
@@ -830,18 +1160,21 @@ class PlaywrightScraper(JobScraper):
             return None
 
 
-def create_scraper(site: str = 'boss', use_playwright: bool = True) -> JobScraper:
+def create_scraper(site: str = 'boss', use_playwright: bool = True, 
+                  headless: bool = False, user_data_dir: Optional[str] = None) -> JobScraper:
     """创建爬虫实例
     
     Args:
         site: 网站类型 ('boss', 'generic')
         use_playwright: 是否使用Playwright（默认True）
+        headless: 是否使用无头模式（默认False，有头模式更难被检测）
+        user_data_dir: 用户数据目录路径，用于保持登录状态
         
     Returns:
         JobScraper: 爬虫实例
     """
     if use_playwright and HAS_PLAYWRIGHT_SUPPORT:
-        return PlaywrightScraper()
+        return PlaywrightScraper(headless=headless, user_data_dir=user_data_dir)
     elif site.lower() == 'boss':
         return BossZhipinScraper()
     else:

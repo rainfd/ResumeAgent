@@ -1,0 +1,1 @@
+"""Web Pages Package for Resume Assistant."""

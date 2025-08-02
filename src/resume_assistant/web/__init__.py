@@ -1,0 +1,1 @@
+"""Resume Assistant Web Interface Package."""

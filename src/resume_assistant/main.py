@@ -17,31 +17,23 @@ def main() -> None:
     try:
         # Initialize configuration and logging
         settings = get_settings()
-        configure_logging()
+        configure_logging(enable_console=True)
+        
         logger = get_logger(__name__)
         
         logger.info("Resume Assistant v0.1.0 starting...")
         logger.info(f"Using configuration: theme={settings.theme}, log_level={settings.log_level}")
         
-        print("🚀 Resume Assistant v0.1.0")
-        print("📝 AI-powered resume optimization tool")
-        print("Starting TUI application...")
-        
-        # Initialize and run the TUI application
-        from src.resume_assistant.ui.app import ResumeAssistantApp
-        
-        logger.info("Initializing TUI application")
-        app = ResumeAssistantApp()
-        
-        logger.info("Application initialization complete, starting UI")
-        app.run()
+        # 基础功能初始化
+        logger.info("Application core modules initialized")
+        logger.info("Resume Assistant is ready for interface integration")
         
     except KeyboardInterrupt:
-        print("\n⏹️  Application interrupted by user.")
         sys.exit(0)
     except Exception as e:
         error_handler.handle_error(e, "应用程序启动")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
