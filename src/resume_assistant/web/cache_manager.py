@@ -1,328 +1,371 @@
-"""Cache Management for Streamlit Web Interface."""
+"""Web界面缓存管理
+
+优化Streamlit应用的性能通过智能缓存系统。
+"""
 
 import streamlit as st
-from typing import Any, Dict, List, Optional, Callable
-from datetime import datetime, timedelta
 import hashlib
+import pickle
 import json
+import time
+from typing import Any, Optional, Dict, List, Callable, Union
+from datetime import datetime, timedelta
+from pathlib import Path
+from functools import wraps
+from dataclasses import dataclass, field
+import os
 
 from ..utils import get_logger
 
 logger = get_logger(__name__)
 
-class CacheManager:
-    """Streamlit缓存管理器"""
+@dataclass
+class CacheEntry:
+    """缓存条目"""
+    key: str
+    value: Any
+    created_at: datetime
+    expires_at: Optional[datetime] = None
+    access_count: int = 0
+    last_accessed: datetime = field(default_factory=datetime.now)
+    size_bytes: int = 0
+    tags: List[str] = field(default_factory=list)
     
-    @staticmethod
-    def get_cache_key(prefix: str, *args, **kwargs) -> str:
-        """生成缓存键"""
-        # 将参数转换为字符串并生成哈希
-        data = {
-            'args': args,
-            'kwargs': kwargs,
-            'timestamp': datetime.now().isoformat()[:19]  # 精确到秒
-        }
-        content = json.dumps(data, sort_keys=True, default=str)
-        hash_obj = hashlib.md5(content.encode())
-        return f"{prefix}_{hash_obj.hexdigest()[:8]}"
+    @property
+    def is_expired(self) -> bool:
+        """检查是否过期"""
+        if self.expires_at is None:
+            return False
+        return datetime.now() > self.expires_at
     
-    @staticmethod
-    @st.cache_data(ttl=300)  # 5分钟缓存
-    def cache_job_scraping_result(url: str, scraper_func: Callable) -> Dict[str, Any]:
-        """缓存职位爬取结果"""
-        try:
-            logger.info(f"Cache miss for job scraping: {url}")
-            return scraper_func(url)
-        except Exception as e:
-            logger.error(f"Cache job scraping error: {e}")
-            return {}
-    
-    @staticmethod
-    @st.cache_data(ttl=600)  # 10分钟缓存
-    def cache_resume_parsing_result(file_content: bytes, file_type: str, parser_func: Callable) -> Dict[str, Any]:
-        """缓存简历解析结果"""
-        try:
-            # 为文件内容生成哈希作为缓存键的一部分
-            content_hash = hashlib.md5(file_content).hexdigest()
-            logger.info(f"Cache miss for resume parsing: {file_type}_{content_hash[:8]}")
-            return parser_func(file_content, file_type)
-        except Exception as e:
-            logger.error(f"Cache resume parsing error: {e}")
-            return {}
-    
-    @staticmethod
-    @st.cache_data(ttl=1800)  # 30分钟缓存
-    def cache_ai_analysis_result(resume_id: str, job_id: str, analysis_func: Callable) -> Dict[str, Any]:
-        """缓存AI分析结果"""
-        try:
-            cache_key = f"analysis_{resume_id}_{job_id}"
-            logger.info(f"Cache miss for AI analysis: {cache_key}")
-            return analysis_func()
-        except Exception as e:
-            logger.error(f"Cache AI analysis error: {e}")
-            return {}
-    
-    @staticmethod
-    @st.cache_data(ttl=900)  # 15分钟缓存
-    def cache_greeting_generation(job_data: str, resume_data: str, generation_func: Callable) -> List[str]:
-        """缓存打招呼语生成结果"""
-        try:
-            # 为数据生成哈希
-            combined_data = f"{job_data}_{resume_data}"
-            data_hash = hashlib.md5(combined_data.encode()).hexdigest()
-            logger.info(f"Cache miss for greeting generation: {data_hash[:8]}")
-            return generation_func()
-        except Exception as e:
-            logger.error(f"Cache greeting generation error: {e}")
-            return []
-    
-    @staticmethod
-    def clear_cache(cache_type: str = "all"):
-        """清除缓存"""
-        try:
-            if cache_type == "all":
-                st.cache_data.clear()
-                logger.info("All cache cleared")
-            else:
-                # 这里可以添加特定类型的缓存清除逻辑
-                logger.info(f"Cache type {cache_type} clearing not implemented")
-            
-            # 添加通知
-            if 'notifications' not in st.session_state:
-                st.session_state.notifications = []
-            
-            st.session_state.notifications.append({
-                'type': 'success',
-                'message': f'缓存已清除: {cache_type}',
-                'timestamp': datetime.now().isoformat()
-            })
-            
-        except Exception as e:
-            logger.error(f"Clear cache error: {e}")
-            if 'notifications' not in st.session_state:
-                st.session_state.notifications = []
-            
-            st.session_state.notifications.append({
-                'type': 'error',
-                'message': f'清除缓存失败: {str(e)}',
-                'timestamp': datetime.now().isoformat()
-            })
-    
-    @staticmethod
-    def get_cache_stats() -> Dict[str, Any]:
-        """获取缓存统计信息"""
-        try:
-            # Streamlit缓存统计（这是一个模拟，实际API可能不同）
-            stats = {
-                'total_cached_functions': 4,
-                'cache_hit_rate': 0.75,  # 模拟75%的命中率
-                'total_cache_size': '2.3 MB',  # 模拟缓存大小
-                'last_cleared': st.session_state.get('last_cache_clear', '未清除'),
-                'cache_enabled': True
-            }
-            return stats
-        except Exception as e:
-            logger.error(f"Get cache stats error: {e}")
-            return {
-                'error': str(e),
-                'cache_enabled': False
-            }
-    
-    @staticmethod
-    def render_cache_management_panel():
-        """渲染缓存管理面板"""
-        st.subheader("🗄️ 缓存管理")
-        
-        # 获取缓存统计
-        stats = CacheManager.get_cache_stats()
-        
-        # 显示统计信息
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("缓存函数数量", stats.get('total_cached_functions', 0))
-        
-        with col2:
-            hit_rate = stats.get('cache_hit_rate', 0)
-            st.metric("命中率", f"{hit_rate * 100:.1f}%")
-        
-        with col3:
-            st.metric("缓存大小", stats.get('total_cache_size', '0 MB'))
-        
-        # 缓存控制
-        st.markdown("### 缓存控制")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("🗑️ 清除全部缓存", type="secondary"):
-                CacheManager.clear_cache("all")
-                st.session_state.last_cache_clear = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                st.rerun()
-        
-        with col2:
-            if st.button("📊 刷新统计", type="secondary"):
-                st.rerun()
-        
-        with col3:
-            cache_enabled = st.checkbox("启用缓存", value=stats.get('cache_enabled', True))
-        
-        # 缓存详情
-        with st.expander("📋 缓存详情"):
-            st.json(stats)
-    
-    @staticmethod
-    def setup_cache_config():
-        """设置缓存配置"""
-        # 在应用启动时调用此函数来配置缓存
-        # 这里可以设置全局缓存参数
-        if 'cache_config' not in st.session_state:
-            st.session_state.cache_config = {
-                'job_scraping_ttl': 300,
-                'resume_parsing_ttl': 600,
-                'ai_analysis_ttl': 1800,
-                'greeting_generation_ttl': 900,
-                'max_cache_size': '50MB',
-                'auto_clear_enabled': True,
-                'auto_clear_interval': 3600  # 1小时
-            }
-        
-        logger.info("Cache configuration initialized")
+    @property
+    def age_seconds(self) -> float:
+        """获取缓存年龄（秒）"""
+        return (datetime.now() - self.created_at).total_seconds()
 
-class PerformanceMonitor:
-    """性能监控器"""
+class SmartCacheManager:
+    """智能缓存管理器"""
     
-    @staticmethod
-    def track_operation_time(operation_name: str):
-        """装饰器：跟踪操作时间"""
-        def decorator(func):
-            def wrapper(*args, **kwargs):
-                start_time = datetime.now()
-                
-                try:
-                    result = func(*args, **kwargs)
-                    
-                    # 记录成功操作
-                    end_time = datetime.now()
-                    duration = (end_time - start_time).total_seconds()
-                    
-                    PerformanceMonitor._record_performance(operation_name, duration, True)
-                    
-                    return result
-                    
-                except Exception as e:
-                    # 记录失败操作
-                    end_time = datetime.now()
-                    duration = (end_time - start_time).total_seconds()
-                    
-                    PerformanceMonitor._record_performance(operation_name, duration, False, str(e))
-                    raise
-            
-            return wrapper
-        return decorator
-    
-    @staticmethod
-    def _record_performance(operation: str, duration: float, success: bool, error: str = None):
-        """记录性能数据"""
-        if 'performance_data' not in st.session_state:
-            st.session_state.performance_data = []
-        
-        record = {
-            'operation': operation,
-            'duration': duration,
-            'success': success,
-            'error': error,
-            'timestamp': datetime.now().isoformat()
+    def __init__(self, max_size_mb: int = 100, default_ttl_seconds: int = 3600):
+        self.max_size_bytes = max_size_mb * 1024 * 1024
+        self.default_ttl_seconds = default_ttl_seconds
+        self.cache: Dict[str, CacheEntry] = {}
+        self.stats = {
+            'hits': 0,
+            'misses': 0,
+            'evictions': 0,
+            'size_bytes': 0
         }
         
-        st.session_state.performance_data.append(record)
+    def _generate_key(self, func_name: str, args: tuple, kwargs: dict) -> str:
+        """生成缓存键"""
+        # 创建参数的哈希
+        param_str = json.dumps({
+            'args': str(args),
+            'kwargs': sorted(kwargs.items())
+        }, sort_keys=True, default=str)
         
-        # 只保留最近100条记录
-        if len(st.session_state.performance_data) > 100:
-            st.session_state.performance_data = st.session_state.performance_data[-100:]
-        
-        logger.info(f"Performance recorded: {operation} - {duration:.2f}s - {'Success' if success else 'Failed'}")
+        param_hash = hashlib.md5(param_str.encode()).hexdigest()
+        return f"{func_name}:{param_hash}"
     
-    @staticmethod
-    def get_performance_summary() -> Dict[str, Any]:
-        """获取性能摘要"""
-        if 'performance_data' not in st.session_state:
-            return {'total_operations': 0}
-        
-        data = st.session_state.performance_data
-        
-        if not data:
-            return {'total_operations': 0}
-        
-        # 计算统计信息
-        total_ops = len(data)
-        success_ops = sum(1 for record in data if record['success'])
-        success_rate = success_ops / total_ops if total_ops > 0 else 0
-        
-        durations = [record['duration'] for record in data if record['success']]
-        avg_duration = sum(durations) / len(durations) if durations else 0
-        
-        # 按操作类型分组
-        operations = {}
-        for record in data:
-            op_name = record['operation']
-            if op_name not in operations:
-                operations[op_name] = {'count': 0, 'avg_duration': 0, 'success_rate': 0}
+    def _calculate_size(self, value: Any) -> int:
+        """计算对象大小"""
+        try:
+            return len(pickle.dumps(value))
+        except:
+            # 如果无法序列化，使用估算
+            return len(str(value).encode())
+    
+    def _evict_if_needed(self, required_size: int):
+        """如果需要，执行缓存驱逐"""
+        while (self.stats['size_bytes'] + required_size > self.max_size_bytes and 
+               self.cache):
+            # LRU驱逐：删除最久未访问的项
+            oldest_key = min(self.cache.keys(), 
+                           key=lambda k: self.cache[k].last_accessed)
             
-            operations[op_name]['count'] += 1
+            entry = self.cache.pop(oldest_key)
+            self.stats['size_bytes'] -= entry.size_bytes
+            self.stats['evictions'] += 1
+            
+            logger.debug(f"Evicted cache entry: {oldest_key}")
+    
+    def get(self, key: str) -> Optional[Any]:
+        """获取缓存值"""
+        if key not in self.cache:
+            self.stats['misses'] += 1
+            return None
+        
+        entry = self.cache[key]
+        
+        # 检查过期
+        if entry.is_expired:
+            self.remove(key)
+            self.stats['misses'] += 1
+            return None
+        
+        # 更新访问信息
+        entry.access_count += 1
+        entry.last_accessed = datetime.now()
+        self.stats['hits'] += 1
+        
+        return entry.value
+    
+    def set(self, key: str, value: Any, ttl_seconds: Optional[int] = None, 
+            tags: Optional[List[str]] = None):
+        """设置缓存值"""
+        ttl = ttl_seconds or self.default_ttl_seconds
+        expires_at = datetime.now() + timedelta(seconds=ttl) if ttl > 0 else None
+        
+        size_bytes = self._calculate_size(value)
+        
+        # 如果需要，执行驱逐
+        self._evict_if_needed(size_bytes)
+        
+        # 如果key已存在，先删除旧的
+        if key in self.cache:
+            self.stats['size_bytes'] -= self.cache[key].size_bytes
+        
+        # 创建新条目
+        entry = CacheEntry(
+            key=key,
+            value=value,
+            created_at=datetime.now(),
+            expires_at=expires_at,
+            size_bytes=size_bytes,
+            tags=tags or []
+        )
+        
+        self.cache[key] = entry
+        self.stats['size_bytes'] += size_bytes
+        
+        logger.debug(f"Cached entry: {key}, size: {size_bytes} bytes")
+    
+    def remove(self, key: str) -> bool:
+        """删除缓存条目"""
+        if key in self.cache:
+            entry = self.cache.pop(key)
+            self.stats['size_bytes'] -= entry.size_bytes
+            return True
+        return False
+    
+    def clear(self):
+        """清空所有缓存"""
+        self.cache.clear()
+        self.stats['size_bytes'] = 0
+        logger.info("Cache cleared")
+    
+    def clear_by_tag(self, tag: str):
+        """根据标签清空缓存"""
+        keys_to_remove = [
+            key for key, entry in self.cache.items()
+            if tag in entry.tags
+        ]
+        
+        for key in keys_to_remove:
+            self.remove(key)
+        
+        logger.info(f"Cleared {len(keys_to_remove)} entries with tag: {tag}")
+    
+    def cleanup_expired(self):
+        """清理过期条目"""
+        expired_keys = [
+            key for key, entry in self.cache.items()
+            if entry.is_expired
+        ]
+        
+        for key in expired_keys:
+            self.remove(key)
+        
+        if expired_keys:
+            logger.info(f"Cleaned up {len(expired_keys)} expired entries")
+        
+        return len(expired_keys)
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """获取缓存统计信息"""
+        hit_rate = (self.stats['hits'] / 
+                   (self.stats['hits'] + self.stats['misses']) 
+                   if (self.stats['hits'] + self.stats['misses']) > 0 else 0)
         
         return {
-            'total_operations': total_ops,
-            'success_rate': success_rate,
-            'average_duration': avg_duration,
-            'operations_breakdown': operations,
-            'recent_errors': [record for record in data[-10:] if not record['success']]
+            **self.stats,
+            'entries_count': len(self.cache),
+            'hit_rate': hit_rate,
+            'size_mb': self.stats['size_bytes'] / (1024 * 1024),
+            'max_size_mb': self.max_size_bytes / (1024 * 1024)
         }
     
-    @staticmethod
-    def render_performance_panel():
-        """渲染性能监控面板"""
-        st.subheader("📈 性能监控")
-        
-        summary = PerformanceMonitor.get_performance_summary()
-        
-        if summary['total_operations'] == 0:
-            st.info("还没有性能数据记录")
-            return
-        
-        # 显示关键指标
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("总操作数", summary['total_operations'])
-        
-        with col2:
-            success_rate = summary['success_rate'] * 100
-            st.metric("成功率", f"{success_rate:.1f}%")
-        
-        with col3:
-            avg_duration = summary['average_duration']
-            st.metric("平均耗时", f"{avg_duration:.2f}s")
-        
-        # 操作分解
-        if summary['operations_breakdown']:
-            st.markdown("### 操作分解")
+    def get_entries_info(self) -> List[Dict[str, Any]]:
+        """获取缓存条目信息"""
+        return [
+            {
+                'key': entry.key,
+                'created_at': entry.created_at,
+                'expires_at': entry.expires_at,
+                'access_count': entry.access_count,
+                'last_accessed': entry.last_accessed,
+                'size_bytes': entry.size_bytes,
+                'tags': entry.tags,
+                'age_seconds': entry.age_seconds,
+                'is_expired': entry.is_expired
+            }
+            for entry in self.cache.values()
+        ]
+
+# 全局缓存管理器
+_cache_manager = None
+
+def get_cache_manager() -> SmartCacheManager:
+    """获取全局缓存管理器"""
+    global _cache_manager
+    if _cache_manager is None:
+        _cache_manager = SmartCacheManager()
+    return _cache_manager
+
+# Streamlit缓存装饰器
+def st_cache(
+    ttl_seconds: Optional[int] = None,
+    tags: Optional[List[str]] = None,
+    show_spinner: bool = True,
+    spinner_text: str = "加载中..."
+):
+    """Streamlit缓存装饰器"""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            cache_manager = get_cache_manager()
+            cache_key = cache_manager._generate_key(func.__name__, args, kwargs)
             
+            # 尝试从缓存获取
+            cached_result = cache_manager.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+            
+            # 缓存未命中，执行函数
+            if show_spinner:
+                with st.spinner(spinner_text):
+                    result = func(*args, **kwargs)
+            else:
+                result = func(*args, **kwargs)
+            
+            # 缓存结果
+            cache_manager.set(cache_key, result, ttl_seconds, tags)
+            
+            return result
+        
+        return wrapper
+    return decorator
+
+# 缓存管理UI工具
+def display_cache_stats():
+    """显示缓存统计信息"""
+    cache_manager = get_cache_manager()
+    stats = cache_manager.get_stats()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("缓存命中率", f"{stats['hit_rate']:.1%}")
+    
+    with col2:
+        st.metric("缓存条目", stats['entries_count'])
+    
+    with col3:
+        st.metric("缓存大小", f"{stats['size_mb']:.1f} MB")
+    
+    with col4:
+        st.metric("驱逐次数", stats['evictions'])
+
+def display_cache_management():
+    """显示缓存管理界面"""
+    st.subheader("🗄️ 缓存管理")
+    
+    cache_manager = get_cache_manager()
+    
+    # 显示统计信息
+    display_cache_stats()
+    
+    st.divider()
+    
+    # 操作按钮
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("🧹 清理过期", help="清理所有过期的缓存条目"):
+            cleaned = cache_manager.cleanup_expired()
+            st.success(f"清理了 {cleaned} 个过期条目")
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ 清空全部", help="清空所有缓存"):
+            cache_manager.clear()
+            st.success("已清空所有缓存")
+            st.rerun()
+    
+    with col3:
+        tag_to_clear = st.selectbox("按标签清理", 
+                                   ["jobs", "resumes", "analyses", "agents", "files", "scraping", "analysis", "greeting"])
+        if st.button("🏷️ 清理标签"):
+            cache_manager.clear_by_tag(tag_to_clear)
+            st.success(f"已清理标签 '{tag_to_clear}' 的缓存")
+            st.rerun()
+    
+    with col4:
+        if st.button("📊 详细信息", help="显示缓存条目详细信息"):
+            st.session_state.show_cache_details = not st.session_state.get('show_cache_details', False)
+    
+    # 显示详细信息
+    if st.session_state.get('show_cache_details', False):
+        st.divider()
+        st.subheader("📋 缓存条目详情")
+        
+        entries = cache_manager.get_entries_info()
+        if entries:
             import pandas as pd
-            ops_data = []
-            for op_name, op_data in summary['operations_breakdown'].items():
-                ops_data.append({
-                    '操作': op_name,
-                    '次数': op_data['count'],
-                    '平均耗时': f"{op_data.get('avg_duration', 0):.2f}s"
-                })
+            df = pd.DataFrame(entries)
+            df['created_at'] = df['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            df['last_accessed'] = df['last_accessed'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            df['size_kb'] = (df['size_bytes'] / 1024).round(2)
             
-            df = pd.DataFrame(ops_data)
-            st.dataframe(df, use_container_width=True)
+            # 显示表格
+            st.dataframe(
+                df[['key', 'created_at', 'last_accessed', 'access_count', 'size_kb', 'tags', 'is_expired']],
+                use_container_width=True
+            )
+        else:
+            st.info("暂无缓存条目")
+
+# 自动缓存清理任务
+def schedule_cache_cleanup():
+    """安排自动缓存清理任务"""
+    cache_manager = get_cache_manager()
+    
+    # 每10分钟清理一次过期条目
+    last_cleanup = st.session_state.get('last_cache_cleanup', 0)
+    now = time.time()
+    
+    if now - last_cleanup > 600:  # 10分钟
+        cleaned = cache_manager.cleanup_expired()
+        st.session_state.last_cache_cleanup = now
         
-        # 最近错误
-        recent_errors = summary.get('recent_errors', [])
-        if recent_errors:
-            with st.expander(f"⚠️ 最近错误 ({len(recent_errors)}条)"):
-                for error in recent_errors:
-                    st.error(f"**{error['operation']}**: {error['error']} ({error['timestamp'][:19]})")
+        if cleaned > 0:
+            logger.info(f"Auto-cleaned {cleaned} expired cache entries")
+
+# 实用工具函数
+def invalidate_cache(tags: Optional[List[str]] = None, keys: Optional[List[str]] = None):
+    """使缓存失效"""
+    cache_manager = get_cache_manager()
+    
+    if tags:
+        for tag in tags:
+            cache_manager.clear_by_tag(tag)
+    
+    if keys:
+        for key in keys:
+            cache_manager.remove(key)
+
+def get_cache_key(func_name: str, *args, **kwargs) -> str:
+    """获取缓存键"""
+    cache_manager = get_cache_manager()
+    return cache_manager._generate_key(func_name, args, kwargs)

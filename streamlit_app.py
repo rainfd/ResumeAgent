@@ -18,9 +18,10 @@ from src.resume_assistant.web.components import UIComponents
 from src.resume_assistant.web.pages.resume_management import ResumeManagementPage
 from src.resume_assistant.web.pages.job_management import JobManagementPage
 from src.resume_assistant.web.pages.analysis_results import AnalysisResultsPage
+from src.resume_assistant.web.pages.agent_management import AgentManagementPage
 from src.resume_assistant.web.pages.greeting_generator import GreetingGeneratorPage
 from src.resume_assistant.web.pages.settings import SettingsPage
-from src.resume_assistant.web.cache_manager import CacheManager
+from src.resume_assistant.web.cache_manager import get_cache_manager
 from src.resume_assistant.data.database import init_database
 
 # 页面配置
@@ -54,9 +55,9 @@ def init_application():
             asyncio.run(init_database())
             logger.info("Database initialized")
             
-            # 设置缓存配置
-            CacheManager.setup_cache_config()
-            logger.info("Cache configuration initialized")
+            # 初始化缓存管理器
+            cache_manager = get_cache_manager()
+            logger.info("Cache manager initialized")
             
             # 标记为已初始化
             st.session_state.initialized = True
@@ -87,6 +88,7 @@ def render_home_page():
     - 🕷️ **职位管理**: 从BOSS直聘等网站抓取职位信息
     - 📄 **简历管理**: 上传和管理PDF/Markdown格式简历
     - 🤖 **AI分析**: 智能分析简历与职位的匹配度
+    - 🤖 **AI Agent**: 创建和管理自定义AI分析助手
     - 💡 **优化建议**: 获得针对性的简历改进建议
     - 💬 **打招呼语**: 生成个性化的求职开场白
     
@@ -94,8 +96,9 @@ def render_home_page():
     
     1. 在 **职位管理** 页面添加目标职位  
     2. 在 **简历管理** 页面上传您的简历
-    3. 在 **分析结果** 页面查看AI分析和建议
-    4. 在 **打招呼语** 页面生成个性化开场白
+    3. 在 **AI Agent** 页面创建或选择分析助手
+    4. 在 **分析结果** 页面查看AI分析和建议
+    5. 在 **打招呼语** 页面生成个性化开场白
     """)
     
     # 显示统计信息
@@ -218,6 +221,11 @@ def main():
     elif current_page == 'analysis':
         analysis_page = AnalysisResultsPage()
         analysis_page.render()
+    elif current_page == 'agents':
+        # 创建SessionManager实例传递给AgentManagementPage
+        session_manager = SessionManager()
+        agent_page = AgentManagementPage(session_manager)
+        agent_page.render()
     elif current_page == 'greeting':
         greeting_page = GreetingGeneratorPage()
         greeting_page.render()

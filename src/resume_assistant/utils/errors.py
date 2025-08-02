@@ -182,6 +182,24 @@ class ResumeParsingError(ResumeAssistantError):
         super().__init__(message, "RESUME_PARSING_ERROR", context)
 
 
+class AIAnalysisError(ResumeAssistantError):
+    """AI Agent analysis related errors."""
+    
+    def __init__(
+        self, 
+        message: str, 
+        agent_id: Optional[int] = None,
+        agent_name: Optional[str] = None
+    ):
+        context = {}
+        if agent_id:
+            context["agent_id"] = agent_id
+        if agent_name:
+            context["agent_name"] = agent_name
+        
+        super().__init__(message, "AI_ANALYSIS_ERROR", context)
+
+
 # Error severity levels
 class ErrorSeverity:
     """Error severity levels."""

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 import aiosqlite
 
-from .models import JobInfo, ResumeContent, MatchAnalysis, GreetingMessage
+from .models import JobInfo, ResumeContent, MatchAnalysis, GreetingMessage, AIAgent, AgentUsageHistory, AgentType
 from ..utils import get_logger
 from ..utils.errors import DatabaseError
 
@@ -33,6 +33,13 @@ class DatabaseManager:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"Database initialized at: {self.db_path}")
+        self._closed = False
+    
+    async def close(self):
+        """关闭数据库连接"""
+        if not self._closed:
+            self._closed = True
+            logger.info("Database connection closed")
     
     async def init_database(self):
         """初始化数据库表结构"""
@@ -86,6 +93,7 @@ class DatabaseManager:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         job_id INTEGER NOT NULL,
                         resume_id INTEGER NOT NULL,
+                        agent_id INTEGER, -- 使用的 Agent ID
                         overall_score REAL,
                         skill_match_score REAL,
                         experience_score REAL,
@@ -93,9 +101,12 @@ class DatabaseManager:
                         missing_skills TEXT, -- JSON格式
                         strengths TEXT, -- JSON格式
                         suggestions TEXT, -- JSON格式存储优化建议
+                        raw_response TEXT, -- AI 原始响应
+                        execution_time REAL DEFAULT 0.0, -- 执行时间
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE,
-                        FOREIGN KEY (resume_id) REFERENCES resumes (id) ON DELETE CASCADE
+                        FOREIGN KEY (resume_id) REFERENCES resumes (id) ON DELETE CASCADE,
+                        FOREIGN KEY (agent_id) REFERENCES ai_agents (id) ON DELETE SET NULL
                     )
                 """)
                 
@@ -114,6 +125,39 @@ class DatabaseManager:
                     )
                 """)
                 
+                # 创建 AI Agent 配置表
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS ai_agents (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        agent_type TEXT NOT NULL DEFAULT 'general', -- general, technical, management, creative, sales, custom
+                        prompt_template TEXT NOT NULL,
+                        is_builtin BOOLEAN DEFAULT FALSE,
+                        usage_count INTEGER DEFAULT 0,
+                        average_rating REAL DEFAULT 0.0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # 创建 Agent 使用历史表
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_usage_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL,
+                        analysis_id INTEGER NOT NULL,
+                        rating REAL, -- 用户评分 1-5
+                        feedback TEXT, -- 用户反馈
+                        execution_time REAL DEFAULT 0.0, -- 执行时间（秒）
+                        success BOOLEAN DEFAULT TRUE, -- 是否执行成功
+                        error_message TEXT, -- 错误信息（如果有）
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (agent_id) REFERENCES ai_agents (id) ON DELETE CASCADE,
+                        FOREIGN KEY (analysis_id) REFERENCES analyses (id) ON DELETE CASCADE
+                    )
+                """)
+                
                 # 创建应用配置表
                 await db.execute("""
                     CREATE TABLE IF NOT EXISTS app_settings (
@@ -127,7 +171,12 @@ class DatabaseManager:
                 await db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company)")
                 await db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at)")
                 await db.execute("CREATE INDEX IF NOT EXISTS idx_analyses_job_resume ON analyses(job_id, resume_id)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_analyses_agent_id ON analyses(agent_id)")
                 await db.execute("CREATE INDEX IF NOT EXISTS idx_greetings_job_id ON greetings(job_id)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_agents_type ON ai_agents(agent_type)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_agents_builtin ON ai_agents(is_builtin)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_agent_usage_agent_id ON agent_usage_history(agent_id)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_agent_usage_analysis_id ON agent_usage_history(analysis_id)")
                 
                 await db.commit()
                 logger.info("Database tables initialized successfully")
@@ -563,6 +612,385 @@ class DatabaseManager:
             logger.error(f"Failed to delete greeting {greeting_id}: {e}")
             raise DatabaseError(f"Failed to delete greeting: {e}")
     
+    # AI Agent 相关操作
+    async def save_agent(self, agent: AIAgent) -> int:
+        """保存 AI Agent 配置"""
+        try:
+            async with self.get_connection() as db:
+                if agent.id:
+                    # 更新现有 Agent
+                    cursor = await db.execute("""
+                        UPDATE ai_agents SET 
+                        name = ?, description = ?, agent_type = ?, prompt_template = ?,
+                        is_builtin = ?, usage_count = ?, average_rating = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (
+                        agent.name, agent.description, agent.agent_type.value,
+                        agent.prompt_template, agent.is_builtin, agent.usage_count,
+                        agent.average_rating, datetime.now().isoformat(), agent.id
+                    ))
+                    await db.commit()
+                    
+                    if cursor.rowcount > 0:
+                        logger.info(f"Agent updated: {agent.name} (ID: {agent.id})")
+                        return agent.id
+                    else:
+                        raise DatabaseError(f"Agent with ID {agent.id} not found")
+                else:
+                    # 创建新 Agent
+                    cursor = await db.execute("""
+                        INSERT INTO ai_agents (name, description, agent_type, prompt_template, 
+                                             is_builtin, usage_count, average_rating, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        agent.name, agent.description, agent.agent_type.value,
+                        agent.prompt_template, agent.is_builtin, agent.usage_count,
+                        agent.average_rating, agent.created_at.isoformat(), 
+                        agent.updated_at.isoformat()
+                    ))
+                    await db.commit()
+                    
+                    agent_id = cursor.lastrowid
+                    logger.info(f"Agent created: {agent.name} (ID: {agent_id})")
+                    return agent_id
+                    
+        except Exception as e:
+            logger.error(f"Failed to save agent: {e}")
+            raise DatabaseError(f"Failed to save agent: {e}")
+    
+    async def get_agent(self, agent_id: int) -> Optional[AIAgent]:
+        """获取指定的 AI Agent"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("""
+                    SELECT * FROM ai_agents WHERE id = ?
+                """, (agent_id,))
+                row = await cursor.fetchone()
+                
+                if row:
+                    return self._row_to_agent(dict(row))
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to get agent {agent_id}: {e}")
+            raise DatabaseError(f"Failed to get agent: {e}")
+    
+    async def get_all_agents(self, include_builtin: bool = True, agent_type: Optional[AgentType] = None) -> List[AIAgent]:
+        """获取所有 AI Agent"""
+        try:
+            async with self.get_connection() as db:
+                query = "SELECT * FROM ai_agents"
+                params = []
+                conditions = []
+                
+                if not include_builtin:
+                    conditions.append("is_builtin = ?")
+                    params.append(False)
+                
+                if agent_type:
+                    conditions.append("agent_type = ?")
+                    params.append(agent_type.value)
+                
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+                
+                query += " ORDER BY is_builtin DESC, created_at ASC"
+                
+                cursor = await db.execute(query, params)
+                rows = await cursor.fetchall()
+                
+                agents = []
+                for row in rows:
+                    agent = self._row_to_agent(dict(row))
+                    if agent:
+                        agents.append(agent)
+                
+                return agents
+                
+        except Exception as e:
+            logger.error(f"Failed to get agents: {e}")
+            raise DatabaseError(f"Failed to get agents: {e}")
+    
+    async def update_agent(self, agent: AIAgent) -> bool:
+        """更新 AI Agent"""
+        try:
+            if not agent.id:
+                raise ValueError("Agent ID is required for update")
+            
+            agent.updated_at = datetime.now()
+            updated_id = await self.save_agent(agent)
+            return updated_id == agent.id
+            
+        except Exception as e:
+            logger.error(f"Failed to update agent: {e}")
+            raise DatabaseError(f"Failed to update agent: {e}")
+    
+    async def delete_agent(self, agent_id: int) -> bool:
+        """删除 AI Agent（仅限非内置）"""
+        try:
+            async with self.get_connection() as db:
+                # 启用外键约束
+                await db.execute("PRAGMA foreign_keys = ON")
+                
+                # 首先检查是否为内置 Agent
+                cursor = await db.execute("SELECT is_builtin FROM ai_agents WHERE id = ?", (agent_id,))
+                row = await cursor.fetchone()
+                
+                if not row:
+                    return False
+                
+                if row['is_builtin']:
+                    raise ValueError("Cannot delete builtin agent")
+                
+                # 删除 Agent（由于外键约束，相关的使用历史会被级联删除）
+                cursor = await db.execute("DELETE FROM ai_agents WHERE id = ?", (agent_id,))
+                await db.commit()
+                
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    logger.info(f"Agent deleted: {agent_id}")
+                return deleted
+                
+        except Exception as e:
+            logger.error(f"Failed to delete agent {agent_id}: {e}")
+            raise DatabaseError(f"Failed to delete agent: {e}")
+    
+    async def update_agent_usage(self, agent_id: int, rating: Optional[float] = None) -> bool:
+        """更新 Agent 使用统计"""
+        try:
+            async with self.get_connection() as db:
+                # 获取当前统计信息
+                cursor = await db.execute("""
+                    SELECT usage_count, average_rating FROM ai_agents WHERE id = ?
+                """, (agent_id,))
+                row = await cursor.fetchone()
+                
+                if not row:
+                    return False
+                
+                current_usage = row['usage_count']
+                current_rating = row['average_rating']
+                
+                # 更新使用次数
+                new_usage = current_usage + 1
+                
+                # 更新平均评分（如果提供了新评分）
+                if rating is not None and 1.0 <= rating <= 5.0:
+                    if current_usage == 0:
+                        new_rating = rating
+                    else:
+                        total_rating = current_rating * current_usage + rating
+                        new_rating = total_rating / new_usage
+                else:
+                    new_rating = current_rating
+                
+                # 保存更新
+                cursor = await db.execute("""
+                    UPDATE ai_agents SET usage_count = ?, average_rating = ?, updated_at = ?
+                    WHERE id = ?
+                """, (new_usage, new_rating, datetime.now().isoformat(), agent_id))
+                await db.commit()
+                
+                return cursor.rowcount > 0
+                
+        except Exception as e:
+            logger.error(f"Failed to update agent usage {agent_id}: {e}")
+            raise DatabaseError(f"Failed to update agent usage: {e}")
+    
+    async def save_agent_usage_history(self, usage: AgentUsageHistory) -> int:
+        """保存 Agent 使用历史"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("""
+                    INSERT INTO agent_usage_history 
+                    (agent_id, analysis_id, rating, feedback, execution_time, success, error_message, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    usage.agent_id, usage.analysis_id, usage.rating, usage.feedback,
+                    usage.execution_time, usage.success, usage.error_message,
+                    usage.created_at.isoformat()
+                ))
+                await db.commit()
+                
+                usage_id = cursor.lastrowid
+                logger.info(f"Agent usage history saved: {usage_id}")
+                return usage_id
+                
+        except Exception as e:
+            logger.error(f"Failed to save agent usage history: {e}")
+            raise DatabaseError(f"Failed to save agent usage history: {e}")
+    
+    async def get_agent_usage_history(self, agent_id: int, limit: int = 50, offset: int = 0) -> List[AgentUsageHistory]:
+        """获取 Agent 使用历史"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("""
+                    SELECT * FROM agent_usage_history 
+                    WHERE agent_id = ? 
+                    ORDER BY created_at DESC 
+                    LIMIT ? OFFSET ?
+                """, (agent_id, limit, offset))
+                rows = await cursor.fetchall()
+                
+                history = []
+                for row in rows:
+                    usage = self._row_to_usage_history(dict(row))
+                    if usage:
+                        history.append(usage)
+                
+                return history
+                
+        except Exception as e:
+            logger.error(f"Failed to get agent usage history for {agent_id}: {e}")
+            raise DatabaseError(f"Failed to get agent usage history: {e}")
+    
+    async def get_agent_statistics(self, agent_id: int) -> Dict[str, Any]:
+        """获取 Agent 统计信息"""
+        try:
+            async with self.get_connection() as db:
+                # 基本统计
+                cursor = await db.execute("""
+                    SELECT usage_count, average_rating FROM ai_agents WHERE id = ?
+                """, (agent_id,))
+                agent_row = await cursor.fetchone()
+                
+                if not agent_row:
+                    return {}
+                
+                # 使用历史统计
+                cursor = await db.execute("""
+                    SELECT 
+                        COUNT(*) as total_uses,
+                        AVG(execution_time) as avg_execution_time,
+                        SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_uses,
+                        AVG(CASE WHEN rating IS NOT NULL THEN rating END) as avg_user_rating,
+                        COUNT(CASE WHEN rating IS NOT NULL THEN 1 END) as rating_count
+                    FROM agent_usage_history 
+                    WHERE agent_id = ?
+                """, (agent_id,))
+                stats_row = await cursor.fetchone()
+                
+                stats = {
+                    'usage_count': agent_row['usage_count'],
+                    'average_rating': agent_row['average_rating'],
+                    'total_uses': stats_row['total_uses'] if stats_row else 0,
+                    'avg_execution_time': stats_row['avg_execution_time'] if stats_row else 0.0,
+                    'successful_uses': stats_row['successful_uses'] if stats_row else 0,
+                    'success_rate': 0.0,
+                    'avg_user_rating': stats_row['avg_user_rating'] if stats_row else 0.0,
+                    'rating_count': stats_row['rating_count'] if stats_row else 0
+                }
+                
+                # 计算成功率
+                if stats['total_uses'] > 0:
+                    stats['success_rate'] = stats['successful_uses'] / stats['total_uses']
+                
+                return stats
+                
+        except Exception as e:
+            logger.error(f"Failed to get agent statistics for {agent_id}: {e}")
+            return {}
+    
+    async def get_agent_usage_history_by_id(self, usage_id: int) -> Optional[AgentUsageHistory]:
+        """根据ID获取单个使用历史记录"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("""
+                    SELECT * FROM agent_usage_history WHERE id = ?
+                """, (usage_id,))
+                row = await cursor.fetchone()
+                
+                if row:
+                    return self._row_to_agent_usage_history(row)
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to get agent usage history {usage_id}: {e}")
+            return None
+    
+    async def update_agent_usage_history(self, usage: AgentUsageHistory) -> bool:
+        """更新Agent使用历史记录"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("""
+                    UPDATE agent_usage_history SET 
+                        rating = ?, feedback = ?
+                    WHERE id = ?
+                """, (usage.rating, usage.feedback, usage.id))
+                await db.commit()
+                
+                success = cursor.rowcount > 0
+                if success:
+                    logger.info(f"Updated agent usage history: {usage.id}")
+                return success
+                
+        except Exception as e:
+            logger.error(f"Failed to update agent usage history {usage.id}: {e}")
+            return False
+    
+    def _row_to_agent(self, row: Dict[str, Any]) -> Optional[AIAgent]:
+        """将数据库行转换为 AIAgent 对象"""
+        try:
+            # 处理 agent_type
+            agent_type_str = row.get('agent_type', 'general')
+            try:
+                agent_type = AgentType(agent_type_str)
+            except ValueError:
+                agent_type = AgentType.GENERAL
+            
+            # 处理日期时间
+            created_at = row.get('created_at')
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            elif not isinstance(created_at, datetime):
+                created_at = datetime.now()
+            
+            updated_at = row.get('updated_at')
+            if isinstance(updated_at, str):
+                updated_at = datetime.fromisoformat(updated_at)
+            elif not isinstance(updated_at, datetime):
+                updated_at = datetime.now()
+            
+            return AIAgent(
+                id=row.get('id'),
+                name=row.get('name', ''),
+                description=row.get('description', ''),
+                agent_type=agent_type,
+                prompt_template=row.get('prompt_template', ''),
+                is_builtin=bool(row.get('is_builtin', False)),
+                usage_count=row.get('usage_count', 0),
+                average_rating=row.get('average_rating', 0.0),
+                created_at=created_at,
+                updated_at=updated_at
+            )
+        except Exception as e:
+            logger.error(f"Failed to convert row to AIAgent: {e}")
+            return None
+    
+    def _row_to_usage_history(self, row: Dict[str, Any]) -> Optional[AgentUsageHistory]:
+        """将数据库行转换为 AgentUsageHistory 对象"""
+        try:
+            created_at = row.get('created_at')
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            elif not isinstance(created_at, datetime):
+                created_at = datetime.now()
+            
+            return AgentUsageHistory(
+                id=row.get('id'),
+                agent_id=row.get('agent_id', 0),
+                analysis_id=row.get('analysis_id', 0),
+                rating=row.get('rating'),
+                feedback=row.get('feedback', ''),
+                execution_time=row.get('execution_time', 0.0),
+                success=bool(row.get('success', True)),
+                error_message=row.get('error_message', ''),
+                created_at=created_at
+            )
+        except Exception as e:
+            logger.error(f"Failed to convert row to AgentUsageHistory: {e}")
+            return None
+    
     # 数据库维护和工具方法
     async def get_database_stats(self) -> Dict[str, Any]:
         """获取数据库统计信息"""
@@ -571,7 +999,7 @@ class DatabaseManager:
                 stats = {}
                 
                 # 获取各表的记录数
-                tables = ['jobs', 'resumes', 'analyses', 'greetings']
+                tables = ['jobs', 'resumes', 'analyses', 'greetings', 'ai_agents', 'agent_usage_history']
                 for table in tables:
                     cursor = await db.execute(f"SELECT COUNT(*) as count FROM {table}")
                     row = await cursor.fetchone()

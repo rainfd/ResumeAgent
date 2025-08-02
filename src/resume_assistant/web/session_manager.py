@@ -43,6 +43,9 @@ class SessionManager:
         # 打招呼语数据
         SessionManager._init_greeting_state()
         
+        # Agent相关数据
+        SessionManager._init_agent_state()
+        
         # UI状态
         SessionManager._init_ui_state()
     
@@ -102,6 +105,24 @@ class SessionManager:
         
         if 'greeting_generation_progress' not in st.session_state:
             st.session_state.greeting_generation_progress = {}
+    
+    @staticmethod
+    def _init_agent_state():
+        """初始化Agent相关状态"""
+        if 'agents' not in st.session_state:
+            st.session_state.agents = []
+        
+        if 'selected_agent' not in st.session_state:
+            st.session_state.selected_agent = None
+        
+        if 'agent_creation_progress' not in st.session_state:
+            st.session_state.agent_creation_progress = {}
+        
+        if 'agent_test_results' not in st.session_state:
+            st.session_state.agent_test_results = {}
+        
+        if 'agent_comparison_results' not in st.session_state:
+            st.session_state.agent_comparison_results = None
     
     @staticmethod
     def _init_ui_state():
@@ -170,6 +191,23 @@ class SessionManager:
             return False
     
     @staticmethod
+    def add_agent(agent_data: Dict[str, Any]) -> bool:
+        """添加Agent到Session State"""
+        try:
+            agent_data['id'] = len(st.session_state.agents) + 1
+            agent_data['created_at'] = datetime.now().isoformat()
+            st.session_state.agents.append(agent_data)
+            
+            SessionManager.add_notification("success", f"成功添加Agent: {agent_data.get('name', '未知Agent')}")
+            logger.info(f"Added agent to session: {agent_data.get('name', 'Unknown')}")
+            return True
+            
+        except Exception as e:
+            SessionManager.add_notification("error", f"添加Agent失败: {str(e)}")
+            logger.error(f"Failed to add agent to session: {e}")
+            return False
+    
+    @staticmethod
     def get_job_by_id(job_id: int) -> Optional[Dict[str, Any]]:
         """根据ID获取职位"""
         for job in st.session_state.jobs:
@@ -183,6 +221,14 @@ class SessionManager:
         for resume in st.session_state.resumes:
             if resume.get('id') == resume_id:
                 return resume
+        return None
+    
+    @staticmethod
+    def get_agent_by_id(agent_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取Agent"""
+        for agent in st.session_state.agents:
+            if agent.get('id') == agent_id:
+                return agent
         return None
     
     @staticmethod
@@ -209,6 +255,19 @@ class SessionManager:
         except Exception as e:
             SessionManager.add_notification("error", f"删除简历失败: {str(e)}")
             logger.error(f"Failed to remove resume: {e}")
+            return False
+    
+    @staticmethod
+    def remove_agent(agent_id: int) -> bool:
+        """删除Agent"""
+        try:
+            st.session_state.agents = [agent for agent in st.session_state.agents if agent.get('id') != agent_id]
+            SessionManager.add_notification("success", "Agent已删除")
+            logger.info(f"Removed agent with id: {agent_id}")
+            return True
+        except Exception as e:
+            SessionManager.add_notification("error", f"删除Agent失败: {str(e)}")
+            logger.error(f"Failed to remove agent: {e}")
             return False
     
     @staticmethod
@@ -268,8 +327,15 @@ class SessionManager:
             'jobs_count': len(st.session_state.jobs),
             'resumes_count': len(st.session_state.resumes),
             'analyses_count': len(st.session_state.analyses),
+            'agents_count': len(st.session_state.agents),
             'greetings_count': len(st.session_state.greetings),
             'notifications_count': len(st.session_state.notifications),
             'current_page': st.session_state.current_page,
             'initialized': st.session_state.initialized
         }
+    
+    @staticmethod 
+    async def get_database_manager():
+        """获取数据库管理器"""
+        from ..data.database import get_database_manager
+        return get_database_manager()

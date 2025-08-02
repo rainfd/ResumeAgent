@@ -12,6 +12,7 @@ from ..core.parser import ResumeParser
 from ..core.ai_analyzer import AIAnalyzer
 from ..core.job_manager import JobManager
 from ..core.resume_processor import ResumeProcessor
+from ..core.agents import AgentManager, AgentAnalysisIntegrator, AIAnalyzer as AgentAIAnalyzer
 from .session_manager import SessionManager
 from ..data.database import get_database_manager
 from ..utils import get_logger
@@ -230,8 +231,10 @@ class WebAnalysisManager:
     def __init__(self):
         self.ai_analyzer = AIAnalyzer()
         self.db_manager = get_database_manager()
+        self._agent_manager = None
+        self._agent_integrator = None
     
-    def analyze_match(self, job_data: Dict[str, Any], resume_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def analyze_match(self, job_data: Dict[str, Any], resume_data: Dict[str, Any], agent_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """分析匹配度"""
         if not job_data or not resume_data:
             st.error("请先选择职位和简历")
@@ -253,37 +256,21 @@ class WebAnalysisManager:
             status_text.text("正在分析简历内容...")
             progress_bar.progress(0.6)
             
-            # 执行AI分析 - 集成真实的AIAnalyzer
+            # 执行AI分析 - 支持Agent选择
             try:
-                # 构建JobInfo对象
-                from ..core.ai_analyzer import JobInfo
-                job_info = JobInfo(
-                    id=str(job_data.get('id', '')),
-                    title=job_data.get('title', ''),
-                    company=job_data.get('company', ''),
-                    description=job_data.get('description', ''),
-                    requirements=job_data.get('requirements', ''),
-                    location=job_data.get('location'),
-                    salary=job_data.get('salary'),
-                    experience_level=job_data.get('experience_level')
-                )
-                
-                # 获取简历内容
-                resume_content = resume_data.get('content', '')
-                resume_id = str(resume_data.get('id', ''))
-                
                 status_text.text("正在进行AI分析...")
                 progress_bar.progress(0.8)
                 
-                # 调用真实的AI分析器
-                ai_result = self.ai_analyzer.analyze_resume_job_match(
-                    resume_content=resume_content,
-                    resume_id=resume_id,
-                    job_info=job_info
-                )
-                
-                # 转换分析结果格式以适配Web界面
-                analysis_result = self._convert_ai_result_to_web_format(ai_result)
+                if agent_id:
+                    # 使用Agent系统进行分析
+                    analysis_result = asyncio.run(self._analyze_with_agent(
+                        job_data, resume_data, agent_id, status_text, progress_bar
+                    ))
+                else:
+                    # 使用传统分析器
+                    analysis_result = self._analyze_with_traditional_analyzer(
+                        job_data, resume_data
+                    )
                 
             except Exception as ai_error:
                 logger.warning(f"AI分析失败，使用模拟数据: {ai_error}")
@@ -308,6 +295,107 @@ class WebAnalysisManager:
             return None
         finally:
             SessionManager.set_loading_state('analysis', False)
+    
+    async def _get_agent_manager(self) -> AgentManager:
+        """获取Agent管理器"""
+        if self._agent_manager is None:
+            agent_ai_analyzer = AgentAIAnalyzer()
+            self._agent_manager = AgentManager(self.db_manager, agent_ai_analyzer)
+            await self._agent_manager.initialize()
+        return self._agent_manager
+    
+    async def _get_agent_integrator(self) -> AgentAnalysisIntegrator:
+        """获取Agent分析集成器"""
+        if self._agent_integrator is None:
+            agent_manager = await self._get_agent_manager()
+            self._agent_integrator = AgentAnalysisIntegrator(agent_manager, self.db_manager)
+        return self._agent_integrator
+    
+    async def _analyze_with_agent(self, job_data: Dict[str, Any], resume_data: Dict[str, Any], 
+                                agent_id: int, status_text, progress_bar) -> Dict[str, Any]:
+        """使用Agent系统进行分析"""
+        integrator = await self._get_agent_integrator()
+        
+        # 构建分析参数
+        job_description = job_data.get('description', '')
+        resume_content = resume_data.get('content', '')
+        job_skills = job_data.get('skills', [])
+        resume_skills = resume_data.get('skills', [])
+        
+        job_id = job_data.get('id', 0)
+        resume_id = resume_data.get('id', 0)
+        
+        # 执行Agent分析
+        result = await integrator.analyze_with_recommended_agent(
+            job_description=job_description,
+            resume_content=resume_content,
+            job_id=job_id,
+            resume_id=resume_id,
+            job_skills=job_skills,
+            resume_skills=resume_skills,
+            force_agent_id=agent_id
+        )
+        
+        if result["success"]:
+            # 转换为Web界面格式
+            analysis = result["analysis"]
+            return {
+                'id': result.get('analysis_id', f'agent_{agent_id}_{job_id}_{resume_id}'),
+                'job_data': job_data,
+                'resume_data': resume_data,
+                'agent_info': {
+                    'id': agent_id,
+                    'name': result.get('agent_name', ''),
+                    'type': result.get('agent_type', '')
+                },
+                'overall_score': analysis.get('overall_score', 0.0),
+                'skill_match_score': analysis.get('skill_match_score', 0.0),
+                'experience_score': analysis.get('experience_score', 0.0),
+                'keyword_coverage': analysis.get('keyword_coverage', 0.0),
+                'missing_skills': analysis.get('missing_skills', []),
+                'strengths': analysis.get('strengths', []),
+                'suggestions': analysis.get('suggestions', []),
+                'raw_response': result.get('raw_response', ''),
+                'execution_time': result.get('execution_time', 0.0),
+                'created_at': asyncio.run(self._get_current_timestamp())
+            }
+        else:
+            raise Exception(result.get('error', 'Agent analysis failed'))
+    
+    def _analyze_with_traditional_analyzer(self, job_data: Dict[str, Any], 
+                                         resume_data: Dict[str, Any]) -> Dict[str, Any]:
+        """使用传统分析器进行分析"""
+        # 构建JobInfo对象
+        from ..core.ai_analyzer import JobInfo
+        job_info = JobInfo(
+            id=str(job_data.get('id', '')),
+            title=job_data.get('title', ''),
+            company=job_data.get('company', ''),
+            description=job_data.get('description', ''),
+            requirements=job_data.get('requirements', ''),
+            location=job_data.get('location'),
+            salary=job_data.get('salary'),
+            experience_level=job_data.get('experience_level')
+        )
+        
+        # 获取简历内容
+        resume_content = resume_data.get('content', '')
+        resume_id = str(resume_data.get('id', ''))
+        
+        # 调用传统的AI分析器
+        ai_result = self.ai_analyzer.analyze_resume_job_match(
+            resume_content=resume_content,
+            resume_id=resume_id,
+            job_info=job_info
+        )
+        
+        # 转换分析结果格式以适配Web界面
+        return self._convert_ai_result_to_web_format(ai_result)
+    
+    async def _get_current_timestamp(self) -> str:
+        """获取当前时间戳"""
+        from datetime import datetime
+        return datetime.now().isoformat()
     
     def get_analyses_list(self) -> List[Dict[str, Any]]:
         """获取分析列表"""
@@ -446,6 +534,330 @@ class WebAnalysisManager:
             'created_at': datetime.now().isoformat(),
             'analysis_version': '1.0-fallback'
         }
+
+class WebAgentManager:
+    """Web界面Agent管理适配器"""
+    
+    def __init__(self):
+        self.db_manager = get_database_manager()
+        self._agent_manager = None
+        self._agent_factory = None
+        self._agent_integrator = None
+    
+    async def _get_agent_manager(self) -> AgentManager:
+        """获取Agent管理器"""
+        if self._agent_manager is None:
+            from ..core.agents import AIAnalyzer as AgentAIAnalyzer
+            agent_ai_analyzer = AgentAIAnalyzer()
+            self._agent_manager = AgentManager(self.db_manager, agent_ai_analyzer)
+            await self._agent_manager.initialize()
+        return self._agent_manager
+    
+    async def _get_agent_factory(self):
+        """获取Agent工厂"""
+        if self._agent_factory is None:
+            from ..core.agents import AgentFactory
+            agent_manager = await self._get_agent_manager()
+            self._agent_factory = AgentFactory(agent_manager)
+        return self._agent_factory
+    
+    async def _get_agent_integrator(self):
+        """获取Agent分析集成器"""
+        if self._agent_integrator is None:
+            from ..core.agents import AgentAnalysisIntegrator
+            agent_manager = await self._get_agent_manager()
+            self._agent_integrator = AgentAnalysisIntegrator(agent_manager, self.db_manager)
+        return self._agent_integrator
+    
+    def get_all_agents(self, include_custom: bool = True) -> List[Dict[str, Any]]:
+        """获取所有Agent（同步版本，用于Web界面）"""
+        try:
+            SessionManager.set_loading_state('agent_loading', True)
+            
+            agents = asyncio.run(self._load_all_agents(include_custom))
+            return [self._agent_to_dict(agent) for agent in agents]
+            
+        except Exception as e:
+            logger.error(f"Failed to get agents: {e}")
+            st.error(f"获取Agent列表失败: {e}")
+            return []
+        finally:
+            SessionManager.set_loading_state('agent_loading', False)
+    
+    async def _load_all_agents(self, include_custom: bool = True):
+        """异步加载所有Agent"""
+        agent_manager = await self._get_agent_manager()
+        return await agent_manager.get_all_agents(include_custom=include_custom)
+    
+    def create_agent(self, agent_data: Dict[str, Any]) -> Optional[int]:
+        """创建新Agent（同步版本）"""
+        try:
+            SessionManager.set_loading_state('agent_creation', True)
+            
+            with st.spinner("正在创建Agent..."):
+                agent_id = asyncio.run(self._create_agent_async(agent_data))
+                
+            if agent_id:
+                st.success(f"Agent创建成功，ID: {agent_id}")
+                return agent_id
+            else:
+                st.error("Agent创建失败")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to create agent: {e}")
+            st.error(f"创建Agent失败: {e}")
+            return None
+        finally:
+            SessionManager.set_loading_state('agent_creation', False)
+    
+    async def _create_agent_async(self, agent_data: Dict[str, Any]) -> Optional[int]:
+        """异步创建Agent"""
+        agent_manager = await self._get_agent_manager()
+        return await agent_manager.create_agent(agent_data)
+    
+    def update_agent(self, agent_id: int, updates: Dict[str, Any]) -> bool:
+        """更新Agent（同步版本）"""
+        try:
+            SessionManager.set_loading_state('agent_update', True)
+            
+            with st.spinner("正在更新Agent..."):
+                success = asyncio.run(self._update_agent_async(agent_id, updates))
+                
+            if success:
+                st.success("Agent更新成功")
+                return True
+            else:
+                st.error("Agent更新失败")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to update agent: {e}")
+            st.error(f"更新Agent失败: {e}")
+            return False
+        finally:
+            SessionManager.set_loading_state('agent_update', False)
+    
+    async def _update_agent_async(self, agent_id: int, updates: Dict[str, Any]) -> bool:
+        """异步更新Agent"""
+        agent_manager = await self._get_agent_manager()
+        return await agent_manager.update_agent(agent_id, updates)
+    
+    def delete_agent(self, agent_id: int) -> bool:
+        """删除Agent（同步版本）"""
+        try:
+            SessionManager.set_loading_state('agent_deletion', True)
+            
+            with st.spinner("正在删除Agent..."):
+                success = asyncio.run(self._delete_agent_async(agent_id))
+                
+            if success:
+                st.success("Agent删除成功")
+                return True
+            else:
+                st.error("Agent删除失败")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to delete agent: {e}")
+            st.error(f"删除Agent失败: {e}")
+            return False
+        finally:
+            SessionManager.set_loading_state('agent_deletion', False)
+    
+    async def _delete_agent_async(self, agent_id: int) -> bool:
+        """异步删除Agent"""
+        agent_manager = await self._get_agent_manager()
+        return await agent_manager.delete_agent(agent_id)
+    
+    def test_agent(self, agent_id: int, test_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """测试Agent（同步版本）"""
+        try:
+            SessionManager.set_loading_state('agent_testing', True)
+            
+            with st.spinner("正在测试Agent..."):
+                result = asyncio.run(self._test_agent_async(agent_id, test_data))
+                
+            if result and result.get("success"):
+                st.success("Agent测试成功")
+                return result
+            else:
+                error_msg = result.get("error", "测试失败") if result else "测试失败"
+                st.error(f"Agent测试失败: {error_msg}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to test agent: {e}")
+            st.error(f"测试Agent失败: {e}")
+            return None
+        finally:
+            SessionManager.set_loading_state('agent_testing', False)
+    
+    async def _test_agent_async(self, agent_id: int, test_data: Dict[str, Any]) -> Dict[str, Any]:
+        """异步测试Agent"""
+        integrator = await self._get_agent_integrator()
+        
+        return await integrator.analyze_with_recommended_agent(
+            job_description=test_data.get("job_description", ""),
+            resume_content=test_data.get("resume_content", ""),
+            job_id=0,  # 测试用虚拟ID
+            resume_id=0,  # 测试用虚拟ID
+            job_skills=test_data.get("job_skills", []),
+            resume_skills=test_data.get("resume_skills", []),
+            force_agent_id=agent_id
+        )
+    
+    def get_agent_statistics(self, agent_id: int) -> Dict[str, Any]:
+        """获取Agent统计信息（同步版本）"""
+        try:
+            return asyncio.run(self._get_agent_statistics_async(agent_id))
+        except Exception as e:
+            logger.error(f"Failed to get agent statistics: {e}")
+            return {}
+    
+    async def _get_agent_statistics_async(self, agent_id: int) -> Dict[str, Any]:
+        """异步获取Agent统计信息"""
+        agent_manager = await self._get_agent_manager()
+        return await agent_manager.get_agent_statistics(agent_id)
+    
+    def get_recommended_agent(self, job_description: str) -> Optional[Dict[str, Any]]:
+        """获取推荐Agent（同步版本）"""
+        try:
+            agent = asyncio.run(self._get_recommended_agent_async(job_description))
+            return self._agent_to_dict(agent) if agent else None
+        except Exception as e:
+            logger.error(f"Failed to get recommended agent: {e}")
+            return None
+    
+    async def _get_recommended_agent_async(self, job_description: str):
+        """异步获取推荐Agent"""
+        factory = await self._get_agent_factory()
+        return await factory.get_recommended_agent(job_description)
+    
+    def compare_agents(self, agent_ids: List[int], test_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """对比多个Agent（同步版本）"""
+        try:
+            SessionManager.set_loading_state('agent_comparison', True)
+            
+            with st.spinner("正在进行Agent对比..."):
+                result = asyncio.run(self._compare_agents_async(agent_ids, test_data))
+                
+            if result and result.get("success"):
+                st.success("Agent对比完成")
+                return result
+            else:
+                error_msg = result.get("error", "对比失败") if result else "对比失败"
+                st.error(f"Agent对比失败: {error_msg}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to compare agents: {e}")
+            st.error(f"Agent对比失败: {e}")
+            return None
+        finally:
+            SessionManager.set_loading_state('agent_comparison', False)
+    
+    async def _compare_agents_async(self, agent_ids: List[int], test_data: Dict[str, Any]) -> Dict[str, Any]:
+        """异步对比Agent"""
+        integrator = await self._get_agent_integrator()
+        
+        return await integrator.compare_agents(
+            job_description=test_data.get("job_description", ""),
+            resume_content=test_data.get("resume_content", ""),
+            job_id=0,  # 测试用虚拟ID
+            resume_id=0,  # 测试用虚拟ID
+            agent_ids=agent_ids,
+            job_skills=test_data.get("job_skills", []),
+            resume_skills=test_data.get("resume_skills", [])
+        )
+    
+    def get_agent_types(self) -> List[Dict[str, str]]:
+        """获取Agent类型列表"""
+        from ..data.models import AgentType
+        return [
+            {"value": agent_type.value, "label": self._get_agent_type_label(agent_type)}
+            for agent_type in AgentType
+        ]
+    
+    def _get_agent_type_label(self, agent_type) -> str:
+        """获取Agent类型标签"""
+        labels = {
+            "general": "通用分析",
+            "technical": "技术岗位",
+            "management": "管理岗位",
+            "creative": "创意行业",
+            "sales": "销售岗位",
+            "custom": "自定义"
+        }
+        return labels.get(agent_type.value, agent_type.value)
+    
+    def _agent_to_dict(self, agent) -> Dict[str, Any]:
+        """将Agent对象转换为字典"""
+        if not agent:
+            return {}
+        
+        return {
+            "id": agent.id,
+            "name": agent.name,
+            "description": agent.description,
+            "agent_type": agent.agent_type.value,
+            "agent_type_label": self._get_agent_type_label(agent.agent_type),
+            "is_builtin": agent.is_builtin,
+            "prompt_template": agent.prompt_template,
+            "usage_count": agent.usage_count,
+            "average_rating": agent.average_rating,
+            "created_at": agent.created_at.isoformat() if agent.created_at else None,
+            "updated_at": agent.updated_at.isoformat() if agent.updated_at else None
+        }
+    
+    def display_agent_card(self, agent_dict: Dict[str, Any], show_actions: bool = True):
+        """显示Agent卡片"""
+        from .components import UIComponents
+        
+        components = UIComponents()
+        
+        with st.container():
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                # Agent基本信息
+                icon = "🏗️" if agent_dict.get("is_builtin") else "⚙️"
+                st.markdown(f"### {icon} {agent_dict.get('name', 'Unknown')}")
+                st.caption(f"类型: {agent_dict.get('agent_type_label', 'Unknown')}")
+                
+                if agent_dict.get("description"):
+                    st.write(agent_dict["description"])
+            
+            with col2:
+                # 使用统计
+                st.metric("使用次数", agent_dict.get("usage_count", 0))
+                if agent_dict.get("average_rating", 0) > 0:
+                    st.metric("平均评分", f"{agent_dict['average_rating']:.1f}/5.0")
+                else:
+                    st.metric("平均评分", "暂无评分")
+            
+            with col3:
+                # 操作按钮
+                if show_actions and not agent_dict.get("is_builtin"):
+                    if st.button(f"✏️ 编辑", key=f"edit_{agent_dict['id']}"):
+                        st.session_state[f"edit_agent_{agent_dict['id']}"] = True
+                        st.rerun()
+                    
+                    if st.button(f"🗑️ 删除", key=f"delete_{agent_dict['id']}"):
+                        if st.confirm(f"确定要删除Agent '{agent_dict['name']}'吗？"):
+                            if self.delete_agent(agent_dict["id"]):
+                                st.rerun()
+                
+                if st.button(f"🧪 测试", key=f"test_{agent_dict['id']}"):
+                    st.session_state[f"test_agent_{agent_dict['id']}"] = True
+                    st.rerun()
+            
+            # Prompt预览
+            if agent_dict.get("prompt_template"):
+                with st.expander("📋 查看Prompt模板"):
+                    st.code(agent_dict["prompt_template"], language="text")
+            
+            st.markdown("---")
 
 class WebGreetingManager:
     """Web界面打招呼语管理适配器"""

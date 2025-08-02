@@ -53,6 +53,12 @@ class NavigationManager:
                 visible=True
             ),
             MenuItem(
+                key="agents",
+                title="AI Agent",
+                icon="🤖",
+                visible=True
+            ),
+            MenuItem(
                 key="greeting",
                 title="打招呼语",
                 icon="💬",
