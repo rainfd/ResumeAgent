@@ -471,6 +471,98 @@ class DatabaseManager:
             logger.error(f"Failed to get all analyses: {e}")
             raise DatabaseError(f"Failed to get analyses: {e}")
     
+    # 打招呼语相关操作
+    async def save_greeting(self, greeting_data: Dict[str, Any]) -> int:
+        """保存打招呼语"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("""
+                    INSERT INTO greetings (job_id, resume_id, content, version, is_custom)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    greeting_data.get('job_id'),
+                    greeting_data.get('resume_id'),
+                    greeting_data.get('content', ''),
+                    greeting_data.get('version', 1),
+                    greeting_data.get('is_custom', False)
+                ))
+                
+                await db.commit()
+                greeting_id = cursor.lastrowid
+                logger.info(f"Greeting saved with ID: {greeting_id}")
+                return greeting_id
+                
+        except Exception as e:
+            logger.error(f"Failed to save greeting: {e}")
+            raise DatabaseError(f"Failed to save greeting: {e}")
+    
+    async def get_greeting(self, greeting_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取打招呼语"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("SELECT * FROM greetings WHERE id = ?", (greeting_id,))
+                row = await cursor.fetchone()
+                
+                if row:
+                    return dict(row)
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to get greeting {greeting_id}: {e}")
+            raise DatabaseError(f"Failed to get greeting: {e}")
+    
+    async def get_greetings_by_job_resume(self, job_id: int, resume_id: int) -> List[Dict[str, Any]]:
+        """根据职位和简历ID获取打招呼语列表"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute(
+                    "SELECT * FROM greetings WHERE job_id = ? AND resume_id = ? ORDER BY created_at DESC", 
+                    (job_id, resume_id)
+                )
+                rows = await cursor.fetchall()
+                
+                return [dict(row) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Failed to get greetings for job {job_id} and resume {resume_id}: {e}")
+            raise DatabaseError(f"Failed to get greetings: {e}")
+    
+    async def get_all_greetings(self, limit: int = None, offset: int = 0) -> List[Dict[str, Any]]:
+        """获取所有打招呼语"""
+        try:
+            async with self.get_connection() as db:
+                query = "SELECT * FROM greetings ORDER BY created_at DESC"
+                params = []
+                
+                if limit:
+                    query += " LIMIT ? OFFSET ?"
+                    params.extend([limit, offset])
+                
+                cursor = await db.execute(query, params)
+                rows = await cursor.fetchall()
+                
+                return [dict(row) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Failed to get all greetings: {e}")
+            raise DatabaseError(f"Failed to get greetings: {e}")
+    
+    async def delete_greeting(self, greeting_id: int) -> bool:
+        """删除打招呼语"""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("DELETE FROM greetings WHERE id = ?", (greeting_id,))
+                await db.commit()
+                
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    logger.info(f"Greeting deleted: {greeting_id}")
+                return deleted
+                
+        except Exception as e:
+            logger.error(f"Failed to delete greeting {greeting_id}: {e}")
+            raise DatabaseError(f"Failed to delete greeting: {e}")
+    
     # 数据库维护和工具方法
     async def get_database_stats(self) -> Dict[str, Any]:
         """获取数据库统计信息"""

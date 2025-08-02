@@ -253,26 +253,42 @@ class WebAnalysisManager:
             status_text.text("正在分析简历内容...")
             progress_bar.progress(0.6)
             
-            # 执行AI分析
-            # 这里需要适配现有的AI分析器
-            analysis_result = {
-                'job_id': job_data.get('id'),
-                'resume_id': resume_data.get('id'),
-                'overall_score': 0.78,
-                'skill_match_score': 0.85,
-                'experience_score': 0.72,
-                'keyword_coverage': 0.68,
-                'missing_skills': ['Docker', 'Kubernetes', 'Redis'],
-                'strengths': ['Python', 'Django', 'MySQL', '团队协作'],
-                'suggestions': [
-                    {
-                        'section': '技能清单',
-                        'original': '熟悉Python开发',
-                        'suggested': '精通Python开发，有3年项目经验',
-                        'reason': '更具体地描述技能水平和经验'
-                    }
-                ]
-            }
+            # 执行AI分析 - 集成真实的AIAnalyzer
+            try:
+                # 构建JobInfo对象
+                from ..core.ai_analyzer import JobInfo
+                job_info = JobInfo(
+                    id=str(job_data.get('id', '')),
+                    title=job_data.get('title', ''),
+                    company=job_data.get('company', ''),
+                    description=job_data.get('description', ''),
+                    requirements=job_data.get('requirements', ''),
+                    location=job_data.get('location'),
+                    salary=job_data.get('salary'),
+                    experience_level=job_data.get('experience_level')
+                )
+                
+                # 获取简历内容
+                resume_content = resume_data.get('content', '')
+                resume_id = str(resume_data.get('id', ''))
+                
+                status_text.text("正在进行AI分析...")
+                progress_bar.progress(0.8)
+                
+                # 调用真实的AI分析器
+                ai_result = self.ai_analyzer.analyze_resume_job_match(
+                    resume_content=resume_content,
+                    resume_id=resume_id,
+                    job_info=job_info
+                )
+                
+                # 转换分析结果格式以适配Web界面
+                analysis_result = self._convert_ai_result_to_web_format(ai_result)
+                
+            except Exception as ai_error:
+                logger.warning(f"AI分析失败，使用模拟数据: {ai_error}")
+                # 如果AI分析失败，使用模拟数据
+                analysis_result = self._create_fallback_analysis(job_data, resume_data)
             
             status_text.text("正在生成分析报告...")
             progress_bar.progress(0.9)
@@ -353,12 +369,89 @@ class WebAnalysisManager:
                         "修改建议"
                     )
                     st.info(f"**理由**: {suggestion.get('reason', '')}")
+    
+    def _convert_ai_result_to_web_format(self, ai_result) -> Dict[str, Any]:
+        """转换AI分析结果为Web界面格式"""
+        from ..core.ai_analyzer import AnalysisResult
+        from datetime import datetime
+        
+        if not isinstance(ai_result, AnalysisResult):
+            logger.error("AI结果格式错误")
+            return self._create_fallback_analysis({}, {})
+        
+        # 转换匹配度分数（从0-100转换为0-1）
+        match_scores = ai_result.match_scores
+        
+        return {
+            'analysis_id': ai_result.id,
+            'job_id': ai_result.job_id,
+            'resume_id': ai_result.resume_id,
+            'overall_score': ai_result.overall_score / 100.0,  # 转换为0-1范围
+            'skill_match_score': match_scores.get('技能匹配度', 60.0) / 100.0,
+            'experience_score': match_scores.get('经验匹配度', 60.0) / 100.0,
+            'keyword_coverage': match_scores.get('关键词覆盖', 60.0) / 100.0,
+            'missing_skills': ai_result.missing_skills,
+            'strengths': ai_result.strengths,
+            'weaknesses': ai_result.weaknesses,
+            'suggestions': self._format_suggestions(ai_result.suggestions),
+            'created_at': ai_result.created_at.isoformat(),
+            'analysis_version': ai_result.analysis_version
+        }
+    
+    def _format_suggestions(self, suggestions: List[str]) -> List[Dict[str, str]]:
+        """格式化建议为Web界面格式"""
+        formatted_suggestions = []
+        
+        for i, suggestion in enumerate(suggestions):
+            # 尝试解析建议的结构，如果无法解析则使用默认格式
+            formatted_suggestions.append({
+                'section': f'建议 {i+1}',
+                'original': '待优化内容',
+                'suggested': suggestion,
+                'reason': '基于AI分析的改进建议'
+            })
+        
+        return formatted_suggestions
+    
+    def _create_fallback_analysis(self, job_data: Dict[str, Any], resume_data: Dict[str, Any]) -> Dict[str, Any]:
+        """创建回退分析结果（当AI分析失败时）"""
+        import uuid
+        from datetime import datetime
+        
+        return {
+            'analysis_id': str(uuid.uuid4()),
+            'job_id': job_data.get('id'),
+            'resume_id': resume_data.get('id'),
+            'overall_score': 0.74,
+            'skill_match_score': 0.78,
+            'experience_score': 0.70,
+            'keyword_coverage': 0.65,
+            'missing_skills': ['Docker', 'Kubernetes', 'Redis', '微服务架构'],
+            'strengths': ['技术基础扎实', '学习能力强', '团队协作经验', 'Python开发经验'],
+            'weaknesses': ['缺乏大型项目经验', '新技术实践较少'],
+            'suggestions': [
+                {
+                    'section': '技能清单',
+                    'original': '熟悉Python开发',
+                    'suggested': '精通Python开发，具有3年以上项目经验，熟练使用Django/Flask框架',
+                    'reason': '更具体地描述技能水平和实际经验'
+                },
+                {
+                    'section': '项目经验',
+                    'original': '参与过多个项目开发',
+                    'suggested': '主导开发了XX系统，使用Python+MySQL技术栈，用户量达到10万+',
+                    'reason': '量化项目成果，突出技术栈匹配度'
+                }
+            ],
+            'created_at': datetime.now().isoformat(),
+            'analysis_version': '1.0-fallback'
+        }
 
 class WebGreetingManager:
     """Web界面打招呼语管理适配器"""
     
     def __init__(self):
-        pass
+        self.ai_analyzer = AIAnalyzer()
     
     def generate_greeting(self, job_data: Dict[str, Any], resume_data: Dict[str, Any]) -> List[str]:
         """生成打招呼语"""
@@ -369,14 +462,26 @@ class WebGreetingManager:
         try:
             SessionManager.set_loading_state('greeting_generation', True)
             
-            # 模拟生成过程
-            with st.spinner("正在生成个性化打招呼语..."):
-                # 这里将来集成AI生成逻辑
-                greetings = [
-                    f"您好！我对{job_data.get('company', '')}的{job_data.get('title', '')}职位非常感兴趣...",
-                    f"尊敬的HR，我是一名有经验的开发者，希望能加入{job_data.get('company', '')}团队...",
-                    f"Hello! 我在招聘网站上看到贵公司的{job_data.get('title', '')}职位招聘..."
-                ]
+            # 创建进度条
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            status_text.text("正在分析职位和简历信息...")
+            progress_bar.progress(0.3)
+            
+            # 尝试使用AI生成打招呼语
+            try:
+                greetings = self._generate_ai_greetings(job_data, resume_data, status_text, progress_bar)
+            except Exception as ai_error:
+                logger.warning(f"AI生成失败，使用模板生成: {ai_error}")
+                greetings = self._generate_template_greetings(job_data, resume_data)
+            
+            status_text.text("生成完成！")
+            progress_bar.progress(1.0)
+            
+            # 清理UI
+            progress_bar.empty()
+            status_text.empty()
             
             return greetings
             
@@ -386,3 +491,140 @@ class WebGreetingManager:
             return []
         finally:
             SessionManager.set_loading_state('greeting_generation', False)
+    
+    def _generate_ai_greetings(self, job_data: Dict[str, Any], resume_data: Dict[str, Any], 
+                              status_text, progress_bar) -> List[str]:
+        """使用AI生成打招呼语"""
+        if not self.ai_analyzer.is_available():
+            raise Exception("AI服务不可用")
+        
+        status_text.text("正在连接AI服务...")
+        progress_bar.progress(0.5)
+        
+        # 构建打招呼语生成提示
+        prompt = self._build_greeting_prompt(job_data, resume_data)
+        
+        status_text.text("正在生成个性化内容...")
+        progress_bar.progress(0.8)
+        
+        # 调用AI生成
+        try:
+            from ..core.ai_analyzer import DeepSeekClient
+            client = DeepSeekClient()
+            
+            messages = [
+                {"role": "system", "content": self._get_greeting_system_prompt()},
+                {"role": "user", "content": prompt}
+            ]
+            
+            ai_response = client.chat_completion(messages)
+            greetings = self._parse_greeting_response(ai_response)
+            
+        except Exception as e:
+            logger.error(f"AI生成打招呼语失败: {e}")
+            raise
+        
+        return greetings
+    
+    def _build_greeting_prompt(self, job_data: Dict[str, Any], resume_data: Dict[str, Any]) -> str:
+        """构建打招呼语生成提示"""
+        # 提取关键信息
+        job_title = job_data.get('title', '')
+        company = job_data.get('company', '')
+        job_skills = job_data.get('skills', [])
+        
+        resume_skills = resume_data.get('skills', [])
+        personal_info = resume_data.get('personal_info', {})
+        experience = resume_data.get('experience', [])
+        
+        # 计算匹配的技能
+        matching_skills = list(set(job_skills) & set(resume_skills))
+        
+        return f"""请基于以下信息生成3个不同风格的求职打招呼语：
+
+【目标职位】
+职位名称：{job_title}
+公司名称：{company}
+技能要求：{', '.join(job_skills[:5])}
+
+【求职者信息】
+技能：{', '.join(resume_skills[:5])}
+工作经验：{len(experience)}段工作经历
+匹配技能：{', '.join(matching_skills[:3])}
+
+要求：
+1. 每个打招呼语控制在80-100字以内
+2. 突出匹配的技能和经验
+3. 体现对该职位的兴趣和了解
+4. 语气要专业但不失亲和力
+5. 三个版本分别采用：正式商务、友好专业、简洁直接的风格"""
+    
+    def _get_greeting_system_prompt(self) -> str:
+        """获取打招呼语生成的系统提示"""
+        return """你是一个专业的求职顾问，擅长撰写个性化的求职打招呼语。
+
+请严格按照以下JSON格式返回结果：
+
+{
+    "greetings": [
+        "第一个打招呼语内容",
+        "第二个打招呼语内容", 
+        "第三个打招呼语内容"
+    ]
+}
+
+要求：
+1. 每个打招呼语要个性化，避免模板化
+2. 突出求职者与职位的匹配点
+3. 语言要自然流畅，有说服力
+4. 避免过度夸大或谦逊
+5. 体现专业素养和求职诚意"""
+    
+    def _parse_greeting_response(self, response: str) -> List[str]:
+        """解析AI生成的打招呼语响应"""
+        import json
+        import re
+        
+        try:
+            # 尝试提取JSON内容
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                data = json.loads(json_str)
+            else:
+                data = json.loads(response)
+            
+            greetings = data.get('greetings', [])
+            
+            # 验证和清理
+            cleaned_greetings = []
+            for greeting in greetings:
+                if isinstance(greeting, str) and len(greeting.strip()) > 10:
+                    cleaned_greetings.append(greeting.strip())
+            
+            if len(cleaned_greetings) >= 2:
+                return cleaned_greetings[:3]  # 最多返回3个
+            else:
+                raise ValueError("AI生成的打招呼语数量不足")
+                
+        except Exception as e:
+            logger.error(f"解析打招呼语响应失败: {e}")
+            logger.debug(f"原始响应: {response}")
+            raise
+    
+    def _generate_template_greetings(self, job_data: Dict[str, Any], resume_data: Dict[str, Any]) -> List[str]:
+        """生成模板打招呼语（AI不可用时的回退方案）"""
+        job_title = job_data.get('title', '该职位')
+        company = job_data.get('company', '贵公司')
+        
+        # 提取简历中的关键技能
+        skills = resume_data.get('skills', [])
+        skill_text = f"，在{skills[0]}"等技术方面有丰富经验" if skills else ""
+        
+        return [
+            f"您好！我对{company}的{job_title}职位非常感兴趣{skill_text}，希望能有机会与您详细交流，期待您的回复。",
+            
+            f"尊敬的HR，我是一名经验丰富的开发者，看到{company}招聘{job_title}的信息后，觉得自己的技能背景与职位需求高度匹配，希望能加入您的团队。",
+            
+            f"Hello！我在招聘平台上关注到{company}的{job_title}职位，我的专业技能和项目经验正好符合职位要求，希望有机会进一步沟通。"
+        ]

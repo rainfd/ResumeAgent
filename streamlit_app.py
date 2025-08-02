@@ -18,6 +18,9 @@ from src.resume_assistant.web.components import UIComponents
 from src.resume_assistant.web.pages.resume_management import ResumeManagementPage
 from src.resume_assistant.web.pages.job_management import JobManagementPage
 from src.resume_assistant.web.pages.analysis_results import AnalysisResultsPage
+from src.resume_assistant.web.pages.greeting_generator import GreetingGeneratorPage
+from src.resume_assistant.web.pages.settings import SettingsPage
+from src.resume_assistant.web.cache_manager import CacheManager
 from src.resume_assistant.data.database import init_database
 
 # 页面配置
@@ -31,6 +34,11 @@ st.set_page_config(
 def init_session_state():
     """初始化Session State"""
     SessionManager.init_session_state()
+    
+    # 记录应用启动时间
+    if 'app_start_time' not in st.session_state:
+        from datetime import datetime
+        st.session_state.app_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def init_application():
     """初始化应用程序"""
@@ -45,6 +53,10 @@ def init_application():
             # 初始化数据库
             asyncio.run(init_database())
             logger.info("Database initialized")
+            
+            # 设置缓存配置
+            CacheManager.setup_cache_config()
+            logger.info("Cache configuration initialized")
             
             # 标记为已初始化
             st.session_state.initialized = True
@@ -207,9 +219,11 @@ def main():
         analysis_page = AnalysisResultsPage()
         analysis_page.render()
     elif current_page == 'greeting':
-        render_placeholder_page("打招呼语", "💬")
+        greeting_page = GreetingGeneratorPage()
+        greeting_page.render()
     elif current_page == 'settings':
-        render_placeholder_page("设置", "⚙️")
+        settings_page = SettingsPage()
+        settings_page.render()
     else:
         render_home_page()
 
