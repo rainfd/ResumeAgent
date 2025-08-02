@@ -619,7 +619,7 @@ class WebGreetingManager:
         
         # 提取简历中的关键技能
         skills = resume_data.get('skills', [])
-        skill_text = f"，在{skills[0]}"等技术方面有丰富经验" if skills else ""
+        skill_text = f"，在{skills[0]}等技术方面有丰富经验" if skills else ""
         
         return [
             f"您好！我对{company}的{job_title}职位非常感兴趣{skill_text}，希望能有机会与您详细交流，期待您的回复。",
